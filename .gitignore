@@ -1,0 +1,12 @@
+node_modules/
+.next/
+out/
+.DS_Store
+*.log
+.env
+.env.*
+.mcp.json
+data/*.db
+data/*.db-shm
+data/*.db-wal
+next-env.d.ts

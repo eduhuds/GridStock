@@ -1,0 +1,30 @@
+import { NextResponse } from 'next/server';
+import { getDb, getUserFromRequest, listUsers, loadState, saveState, syncTechnicianUser } from '@/lib/db';
+import { saveTechnician } from '@/lib/domain';
+import { ensureSupabaseSynced, pushAllToSupabase } from '@/lib/supabaseStore';
+
+export const dynamic = 'force-dynamic';
+
+export async function POST(req: Request) {
+  try {
+    const db = getDb();
+    await ensureSupabaseSynced(db);
+    const user = getUserFromRequest(req, db);
+    if (!user) return NextResponse.json({ error: 'Não autenticado.' }, { status: 401 });
+    if (user.role !== 'ops') return NextResponse.json({ error: 'Acesso restrito ao Controle Operacional.' }, { status: 403 });
+
+    const body = await req.json();
+    body.operator = user.name;
+    const state = loadState(db);
+    const technician = saveTechnician(state, body);
+    if (body.username !== undefined) {
+      syncTechnicianUser(technician, body.username, body.password, db);
+    }
+    saveState(db, state);
+    await pushAllToSupabase(db);
+    return NextResponse.json({ technician, state, users: listUsers(db) });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Erro ao salvar técnico.';
+    return NextResponse.json({ error: message }, { status: 400 });
+  }
+}
