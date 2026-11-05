@@ -1,37 +1,46 @@
-# GridStock — Next.js + TypeScript + React
+# GridStock
 
-Aplicação funcional full-stack construída em **Next.js (App Router)**, **React**, **TypeScript** e **SQLite** (`node:sqlite`), pronta para deploy na **Vercel** e preservando integralmente o design e as regras de negócio do GridStock v2.
+Sistema web para gestão operacional de estoques, endereçamento físico (corredor e prateleira), controle de saída diária de materiais e acompanhamento de estoque pessoal de técnicos em campo com geolocalização GPS.
 
-## Comandos Principais
+## Tecnologias
 
-- **Modo de desenvolvimento:**
+- **Next.js** (App Router)
+- **React**
+- **TypeScript**
+- **Supabase** (PostgreSQL) & **SQLite**
+
+## Funcionalidades Principais
+
+- **Gestão de Estoques (Bases):** Cadastro de almoxarifados, endereçamento físico por corredor e prateleira e transferência entre bases.
+- **Alertas de Estoque Baixo:** Monitoramento automático de peças abaixo do estoque mínimo tanto nas bases quanto em campo.
+- **Controle de Equipe e Saída do Dia:** Cadastro de técnicos com vinculação das peças de saída diária e acompanhamento do estoque pessoal em mãos.
+- **Rastreabilidade com GPS:** Registro de utilização de peças em campo com captura de localização GPS e visualização no mapa.
+- **Perfis de Acesso:** Visões dedicadas para o Controle Operacional (`/`) e para o Técnico em Campo (`/tecnico`).
+
+## Variáveis de Ambiente
+
+Crie um arquivo `.env.local` na raiz do projeto (não versionado no Git) com as credenciais do seu projeto Supabase:
+
+```env
+NEXT_PUBLIC_SUPABASE_URL=sua_url_do_supabase
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=sua_chave_publica_do_supabase
+```
+
+## Comandos
+
+- **Desenvolvimento:**
   ```bash
   npm run dev
   ```
-- **Build de produção (Next.js + TypeScript):**
+- **Build de produção:**
   ```bash
   npm run build
   ```
-- **Servidor de produção (porta 8080):**
+- **Iniciar servidor de produção:**
   ```bash
   npm start
   ```
-- **Testes automatizados:**
+- **Executar testes:**
   ```bash
   npm test
   ```
-
-## Acesso Inicial (Login)
-
-- **Usuário:** `admin`
-- **Senha:** `admin123`
-- **Perfil:** Controle Operacional (`ops`)
-
-## Estrutura em Next.js + TypeScript
-
-- `src/app/layout.tsx` e `src/app/page.tsx`: Entrada do App Router do Next.js.
-- `src/app/globals.css`: Estilos responsivos e identidade visual do GridStock.
-- `src/components/GridStockApp.tsx`: Aplicação React tipada em TypeScript com todas as páginas, filtros, modais, autenticação e exportação CSV.
-- `src/lib/domain.ts`: Regras de domínio tipadas em TypeScript (estoques, produtos, endereçamento físico por corredor/prateleira, técnicos e movimentações).
-- `src/lib/db.ts`: Camada de persistência SQLite e autenticação com tokens assinados via HMAC-SHA256 (compatível com ambientes serverless como a Vercel usando `/tmp/gridstock.db` quando `process.env.VERCEL` está ativo, ou `data/gridstock.db` localmente).
-- `src/app/api/**`: Route Handlers do Next.js (`/api/auth/login`, `/api/auth/logout`, `/api/bootstrap`, `/api/warehouses`, `/api/products`, `/api/technicians`, `/api/movements`, `/api/users` e `/api/system/reset`).

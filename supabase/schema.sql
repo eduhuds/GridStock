@@ -1,8 +1,7 @@
 -- ============================================================================
 -- GridStock v2 — Schema completo para Supabase (PostgreSQL)
 -- Como aplicar:
--- 1. Abra o painel do seu projeto no Supabase:
---    https://supabase.com/dashboard/project/fivkoqvhumbhsfxlicds/sql/new
+-- 1. Abra o SQL Editor no painel do seu projeto no Supabase.
 -- 2. Cole todo este conteúdo no SQL Editor e clique em "Run".
 -- ============================================================================
 
