@@ -37,9 +37,13 @@ export function isCompanyDatabase(db: DatabaseSync) {
 }
 function companyDb(company: Company) {
   if (!cache.companyDbs!.has(company.id)) {
-    if (process.env.VERCEL) throw new Error('Empresas exigem um servidor com armazenamento persistente.');
     const root = process.env.GRIDSTOCK_DB;
-    const dir = path.join(root && root !== ':memory:' ? path.dirname(root) : path.join(process.cwd(), 'data'), 'companies');
+    const baseDir = root && root !== ':memory:'
+      ? path.dirname(root)
+      : process.env.VERCEL
+        ? '/tmp'
+        : path.join(process.cwd(), 'data');
+    const dir = path.join(baseDir, 'companies');
     if (root !== ':memory:') fs.mkdirSync(dir, { recursive: true });
     const db = createDatabase(root === ':memory:' ? ':memory:' : path.join(dir, `${company.id}.db`), false);
     cache.companyDbs!.set(company.id, db);
@@ -81,7 +85,6 @@ export function changeMasterPassword(req: Request, current: unknown, next: unkno
   db.prepare('DELETE FROM master_sessions WHERE token != ?').run(masterToken(req));
 }
 export function saveCompany(body: Record<string, unknown>): Company {
-  if (process.env.VERCEL) throw new Error('Empresas exigem armazenamento persistente. Configure um servidor antes de cadastrar.');
   const db = registry();
   const existing = body.id ? listCompanies().find(c => c.id === body.id) : undefined;
   if (body.id && !existing) throw new Error('Empresa não encontrada.');

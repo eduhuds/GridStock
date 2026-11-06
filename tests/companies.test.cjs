@@ -73,9 +73,6 @@ test('validação rejeita duplicidade e dados inválidos sem registrar empresas'
     { slug: 'gamma', password: 'long-password', username: '!' },
   ]) assert.throws(() => companies.saveCompany({ name: 'Teste', username: 'gestor', ...input }));
   assert.equal(companies.listCompanies().length, count);
-  process.env.VERCEL = '1';
-  assert.throws(() => companies.saveCompany({ name: 'Cloud', slug: 'cloud', username: 'gestor', password: 'long-password' }));
-  delete process.env.VERCEL;
 });
 
 test('módulos, limites e desligamento de campo são aplicados no servidor', () => {
