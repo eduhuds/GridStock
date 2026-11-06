@@ -21,9 +21,13 @@ function registry() {
   if (!columns.some(c => c.name === 'config')) db.exec("ALTER TABLE companies ADD COLUMN config TEXT NOT NULL DEFAULT '{}'");
   db.exec('CREATE TABLE IF NOT EXISTS platform_audit (id INTEGER PRIMARY KEY AUTOINCREMENT, company_id TEXT NOT NULL, company_name TEXT NOT NULL, action TEXT NOT NULL, detail TEXT NOT NULL, ts INTEGER NOT NULL)');
   if (!db.prepare('SELECT id FROM master_account WHERE id=1').get()) {
-    const owner = db.prepare('SELECT username, password_hash FROM users WHERE id = ?').get(process.env.GRIDSTOCK_MASTER_USER_ID || 'u-admin') as { username: string; password_hash: string } | undefined;
-    if (!owner) throw new Error('Administrador principal não encontrado.');
-    db.prepare('INSERT OR IGNORE INTO master_account VALUES (1, ?, ?)').run(owner.username, owner.password_hash);
+    const owner = (
+      db.prepare('SELECT username, password_hash FROM users WHERE id = ?').get(process.env.GRIDSTOCK_MASTER_USER_ID || 'u-admin') ||
+      db.prepare("SELECT username, password_hash FROM users WHERE role = 'ops' ORDER BY created_at ASC LIMIT 1").get()
+    ) as { username: string; password_hash: string } | undefined;
+    if (owner) {
+      db.prepare('INSERT OR IGNORE INTO master_account VALUES (1, ?, ?)').run(owner.username, owner.password_hash);
+    }
   }
   return db;
 }
@@ -74,8 +78,8 @@ export function requireMaster(req: Request) {
 }
 export function masterLogin(username: unknown, password: unknown) {
   const db = registry();
-  const account = db.prepare('SELECT * FROM master_account WHERE id=1').get() as { username: string; password_hash: string };
-  if (String(username).trim().toLowerCase() !== account.username.toLowerCase() || !verifyPassword(String(password || ''), account.password_hash)) throw new Error('Credenciais inválidas.');
+  const account = db.prepare('SELECT * FROM master_account WHERE id=1').get() as { username: string; password_hash: string } | undefined;
+  if (!account || String(username).trim().toLowerCase() !== account.username.toLowerCase() || !verifyPassword(String(password || ''), account.password_hash)) throw new Error('Credenciais inválidas.');
   const token = crypto.randomBytes(32).toString('base64url');
   db.prepare('DELETE FROM master_sessions WHERE created_at < ?').run(Date.now() - 12 * 60 * 60 * 1000);
   db.prepare('INSERT INTO master_sessions VALUES (?, ?)').run(token, Date.now());
@@ -85,8 +89,8 @@ export function masterLogout(req: Request) { registry().prepare('DELETE FROM mas
 export function changeMasterPassword(req: Request, current: unknown, next: unknown) {
   requireMaster(req);
   const db = registry();
-  const account = db.prepare('SELECT password_hash FROM master_account WHERE id=1').get() as { password_hash: string };
-  if (!verifyPassword(String(current || ''), account.password_hash)) throw new Error('Senha atual incorreta.');
+  const account = db.prepare('SELECT password_hash FROM master_account WHERE id=1').get() as { password_hash: string } | undefined;
+  if (!account || !verifyPassword(String(current || ''), account.password_hash)) throw new Error('Senha atual incorreta.');
   if (String(next || '').trim().length < 10) throw new Error('Use pelo menos 10 caracteres na nova senha.');
   db.prepare('UPDATE master_account SET password_hash = ? WHERE id=1').run(hashPassword(String(next)));
   db.prepare('DELETE FROM master_sessions WHERE token != ?').run(masterToken(req));
@@ -199,11 +203,12 @@ export function importPlatformRegistry(snapshot: PlatformRegistrySnapshot) {
   db.exec('BEGIN IMMEDIATE');
   try {
     if (Array.isArray(snapshot.companies)) {
-      db.exec('DELETE FROM companies');
+      const delSlug = db.prepare('DELETE FROM companies WHERE slug = ? AND id != ?');
       const ins = db.prepare(
-        'INSERT INTO companies (id, slug, name, tagline, color, active, createdAt, config) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+        'INSERT INTO companies (id, slug, name, tagline, color, active, createdAt, config) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET slug=excluded.slug, name=excluded.name, tagline=excluded.tagline, color=excluded.color, active=excluded.active, config=excluded.config'
       );
       for (const c of snapshot.companies) {
+        delSlug.run(String(c.slug), String(c.id));
         ins.run(
           String(c.id),
           String(c.slug),
@@ -223,16 +228,14 @@ export function importPlatformRegistry(snapshot: PlatformRegistrySnapshot) {
       );
     }
     if (Array.isArray(snapshot.masterSessions)) {
-      db.exec('DELETE FROM master_sessions');
-      const insS = db.prepare('INSERT INTO master_sessions (token, created_at) VALUES (?, ?)');
+      const insS = db.prepare('INSERT OR REPLACE INTO master_sessions (token, created_at) VALUES (?, ?)');
       for (const s of snapshot.masterSessions) {
         insS.run(String(s.token), Number(s.created_at));
       }
     }
     if (Array.isArray(snapshot.platformAudit)) {
-      db.exec('DELETE FROM platform_audit');
       const insA = db.prepare(
-        'INSERT INTO platform_audit (id, company_id, company_name, action, detail, ts) VALUES (?, ?, ?, ?, ?, ?)'
+        'INSERT OR REPLACE INTO platform_audit (id, company_id, company_name, action, detail, ts) VALUES (?, ?, ?, ?, ?, ?)'
       );
       for (const a of snapshot.platformAudit) {
         insA.run(

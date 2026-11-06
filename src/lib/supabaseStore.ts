@@ -83,19 +83,37 @@ export async function pullPlatformFromSupabase(): Promise<void> {
       .from('app_meta')
       .select('key, value')
       .or(`key.eq.${PLATFORM_REGISTRY_KEY},key.like.${COMPANY_DB_PREFIX}%`);
-    if (error || !data || data.length === 0) return;
+    if (!error && data && data.length > 0) {
+      const regRow = data.find(r => r.key === PLATFORM_REGISTRY_KEY);
+      if (regRow?.value) {
+        const parsed = JSON.parse(String(regRow.value)) as PlatformRegistrySnapshot;
+        importPlatformRegistry(parsed);
+      }
 
-    const regRow = data.find(r => r.key === PLATFORM_REGISTRY_KEY);
-    if (regRow?.value) {
-      const parsed = JSON.parse(String(regRow.value)) as PlatformRegistrySnapshot;
-      importPlatformRegistry(parsed);
+      for (const row of data) {
+        if (String(row.key).startsWith(COMPANY_DB_PREFIX) && row.value) {
+          const companyId = String(row.key).slice(COMPANY_DB_PREFIX.length);
+          const snap = JSON.parse(String(row.value)) as CompanyDbSnapshot;
+          importCompanySnapshot(companyId, snap);
+        }
+      }
     }
 
-    for (const row of data) {
-      if (String(row.key).startsWith(COMPANY_DB_PREFIX) && row.value) {
-        const companyId = String(row.key).slice(COMPANY_DB_PREFIX.length);
-        const snap = JSON.parse(String(row.value)) as CompanyDbSnapshot;
-        importCompanySnapshot(companyId, snap);
+    const regSnap = exportPlatformRegistry();
+    if (!regSnap.masterAccount) {
+      const { data: usersData } = await sb.from('users').select('*');
+      if (usersData && usersData.length > 0) {
+        const owner =
+          usersData.find(u => String(u.id) === (process.env.GRIDSTOCK_MASTER_USER_ID || 'u-admin')) ||
+          usersData.find(u => String(u.role) === 'ops');
+        if (owner) {
+          importPlatformRegistry({
+            companies: [],
+            masterAccount: { username: owner.username, password_hash: owner.password_hash },
+            masterSessions: [],
+            platformAudit: [],
+          });
+        }
       }
     }
   } catch {

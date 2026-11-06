@@ -7,7 +7,11 @@ export async function GET(req: Request) {
   try {
     await pullPlatformFromSupabase();
     requireMaster(req);
-    return Response.json(platformOverview());
+    const overview = platformOverview();
+    if (overview.companies.length > 0) {
+      await pushPlatformToSupabase();
+    }
+    return Response.json(overview);
   } catch {
     return Response.json({ error: 'Entre com sua conta de administrador geral.' }, { status: 403 });
   }
