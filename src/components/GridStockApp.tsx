@@ -19,6 +19,7 @@ import {
 } from '@/lib/domain';
 import type { UserAccount } from '@/lib/db';
 import DashboardCharts from './DashboardCharts';
+import { parseXlsxBytes } from '@/lib/xlsx';
 
 const iconPaths: Record<string, string> = {
   grid: '<rect x="3" y="3" width="7" height="7" rx="1.4"/><rect x="14" y="3" width="7" height="7" rx="1.4"/><rect x="3" y="14" width="7" height="7" rx="1.4"/><rect x="14" y="14" width="7" height="7" rx="1.4"/>',
@@ -190,6 +191,9 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
   // System user form state
   const [sysRole, setSysRole] = useState<'ops' | 'tech'>('ops');
   const [confirmDeleteUser, setConfirmDeleteUser] = useState<UserAccount | null>(null);
+  const [confirmDeleteProduct, setConfirmDeleteProduct] = useState<boolean>(false);
+  const [xlsxImporting, setXlsxImporting] = useState<boolean>(false);
+  const xlsxInputRef = useRef<HTMLInputElement | null>(null);
 
   // Geolocation state for technician part usage
   const [geoStatus, setGeoStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
@@ -506,6 +510,7 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
     setProdCorridor(slot?.corridor || '');
     setProdShelf(slot?.shelf || '');
     setFormError('');
+    setConfirmDeleteProduct(false);
     setModal({ type: 'product', partId: pid });
   };
 
@@ -661,6 +666,97 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
     a.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
     showToast(`${filteredMovements.length} ${filteredMovements.length === 1 ? 'registro exportado' : 'registros exportados'}.`);
+  };
+
+  const handleImportProductsXlsx = async (file: File) => {
+    setFormError('');
+    setXlsxImporting(true);
+    try {
+      const matrix = await parseXlsxBytes(await file.arrayBuffer());
+      if (matrix.length < 2) {
+        throw new Error('A planilha .xlsx está vazia ou não possui linhas de produtos após o cabeçalho.');
+      }
+      const headerRow = matrix[0].map(c =>
+        String(c || '')
+          .trim()
+          .toLowerCase()
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '')
+      );
+      const findCol = (keywords: string[], fallbackIndex: number) => {
+        const idx = headerRow.findIndex(h => keywords.some(k => h.includes(k)));
+        return idx >= 0 ? idx : fallbackIndex;
+      };
+      const skuCol = findCol(['sku', 'codigo', 'cod'], 0);
+      const nameCol = findCol(['nome', 'produto', 'descricao', 'item'], 1);
+      const catCol = findCol(['categoria', 'grupo', 'tipo'], 2);
+      const baseMinCol = findCol(['minimo base', 'estoque minimo', 'minimo'], 3);
+      const techMinCol = findCol(['tecnico', 'minimo por tecnico'], 4);
+      const qtyCol = findCol(['quantidade', 'saldo', 'qtd', 'estoque inicial'], 5);
+      const warehouseCol = findCol(['estoque (', 'base', 'deposito', 'almoxarifado'], 6);
+      const corridorCol = findCol(['corredor'], 7);
+      const shelfCol = findCol(['prateleira', 'posicao', ' gaveta'], 8);
+
+      const dataRows = matrix.slice(1);
+      let importedCount = 0;
+      let latestRes: { state?: GridStockState } | null = null;
+      const fallbackWid = prodWarehouseId || state.warehouses[0]?.id || '';
+
+      for (const row of dataRows) {
+        const sku = String(row[skuCol] ?? row[0] ?? '').trim();
+        const name = String(row[nameCol] ?? row[1] ?? '').trim();
+        const category = String(row[catCol] ?? row[2] ?? 'Geral').trim() || 'Geral';
+        if (!sku || !name) continue;
+        const baseMin = Math.max(0, Math.floor(Number(row[baseMinCol] ?? 10) || 0));
+        const min = Math.max(0, Math.floor(Number(row[techMinCol] ?? 2) || 0));
+        const qty = Math.max(0, Math.floor(Number(row[qtyCol] ?? 0) || 0));
+        const warehouseRef = String(row[warehouseCol] ?? '').trim().toLowerCase();
+        const matchedW =
+          state.warehouses.find(
+            w =>
+              warehouseRef &&
+              (w.id.toLowerCase() === warehouseRef ||
+                w.code.toLowerCase() === warehouseRef ||
+                w.name.toLowerCase() === warehouseRef ||
+                `${w.name} (${w.code})`.toLowerCase() === warehouseRef)
+          ) || state.warehouses.find(w => w.id === fallbackWid) || state.warehouses[0];
+
+        if (!matchedW) {
+          throw new Error('Cadastre pelo menos um estoque antes de importar produtos.');
+        }
+
+        const corridor = String(row[corridorCol] || prodCorridor || 'A').trim() || 'A';
+        const shelf = String(row[shelfCol] || prodShelf || '01').trim() || '01';
+
+        const existingPart = state.parts.find(p => p.sku.toLowerCase() === sku.toLowerCase());
+        latestRes = await apiCall('POST', '/api/products', {
+          id: existingPart?.id || '',
+          sku,
+          name,
+          category,
+          baseMin,
+          min,
+          qty,
+          warehouse: matchedW.id,
+          corridor,
+          shelf,
+        });
+        importedCount++;
+      }
+
+      if (importedCount === 0) {
+        throw new Error('Nenhum produto válido encontrado na planilha .xlsx.');
+      }
+      if (latestRes) applyServerPayload(latestRes);
+      setModal(null);
+      setPage('products');
+      showToast(`${importedCount} ${importedCount === 1 ? 'produto importado' : 'produtos importados'} via .xlsx com sucesso.`);
+    } catch (err) {
+      setFormError(err instanceof Error ? err.message : 'Erro ao importar planilha .xlsx.');
+    } finally {
+      setXlsxImporting(false);
+      if (xlsxInputRef.current) xlsxInputRef.current.value = '';
+    }
   };
 
   if (booting) {
@@ -2971,6 +3067,104 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
             >
               <div className="modal-body">
                 {formError && <div className="error" role="alert">{formError}</div>}
+                {editing && p && confirmDeleteProduct && (
+                  <div
+                    role="alertdialog"
+                    aria-labelledby="confirm-del-prod-title"
+                    style={{
+                      background: '#fff5f4',
+                      border: '1px solid #f2b8b5',
+                      borderRadius: 8,
+                      padding: '14px 16px',
+                      marginBottom: 16,
+                      display: 'flex',
+                      flexWrap: 'wrap',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: 12,
+                    }}
+                  >
+                    <div>
+                      <strong id="confirm-del-prod-title" style={{ color: '#8c1d18', display: 'block', marginBottom: 2 }}>
+                        Tem certeza de que deseja remover este produto?
+                      </strong>
+                      <span className="small" style={{ color: '#5f2120' }}>
+                        O produto <strong>{p.name}</strong> (<code>{p.sku}</code>) será excluído permanentemente do catálogo.
+                      </span>
+                    </div>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <button
+                        type="button"
+                        className="button secondary"
+                        onClick={() => setConfirmDeleteProduct(false)}
+                      >
+                        Cancelar
+                      </button>
+                      <button
+                        type="button"
+                        className="button danger"
+                        onClick={async () => {
+                          setConfirmDeleteProduct(false);
+                          setFormError('');
+                          try {
+                            const res = await apiCall('DELETE', `/api/products/${encodeURIComponent(p.id)}`);
+                            applyServerPayload(res);
+                            setModal(null);
+                            setPage('products');
+                            showToast('Produto excluído do catálogo.');
+                          } catch (err) {
+                            setFormError(err instanceof Error ? err.message : 'Erro ao excluir produto.');
+                          }
+                        }}
+                      >
+                        <Icon name="trash" />
+                        Sim, excluir
+                      </button>
+                    </div>
+                  </div>
+                )}
+                {!editing && (
+                  <div
+                    style={{
+                      background: '#f4f8f5',
+                      border: '1px solid #cfe0d6',
+                      borderRadius: 8,
+                      padding: '12px 14px',
+                      marginBottom: 16,
+                      display: 'flex',
+                      flexWrap: 'wrap',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: 10,
+                    }}
+                  >
+                    <div>
+                      <strong style={{ display: 'block', fontSize: '0.9rem' }}>Importar planilha (.xlsx)</strong>
+                      <span className="small muted">Envie um arquivo .xlsx para cadastrar vários produtos de uma vez.</span>
+                    </div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                      <button
+                        type="button"
+                        className="button secondary"
+                        disabled={xlsxImporting}
+                        onClick={() => xlsxInputRef.current?.click()}
+                      >
+                        <Icon name="in" />
+                        {xlsxImporting ? 'Importando...' : 'Importar .xlsx'}
+                      </button>
+                      <input
+                        ref={xlsxInputRef}
+                        type="file"
+                        accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                        style={{ display: 'none' }}
+                        onChange={e => {
+                          const file = e.target.files?.[0];
+                          if (file) handleImportProductsXlsx(file);
+                        }}
+                      />
+                    </div>
+                  </div>
+                )}
                 <input type="hidden" name="id" value={p?.id || ''} />
                 <div className="form-grid">
                   <div className="field">
@@ -3070,17 +3264,9 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
                     type="button"
                     className="button danger"
                     style={{ marginRight: 'auto' }}
-                    onClick={async () => {
+                    onClick={() => {
                       setFormError('');
-                      try {
-                        const res = await apiCall('DELETE', `/api/products/${encodeURIComponent(p.id)}`);
-                        applyServerPayload(res);
-                        setModal(null);
-                        setPage('products');
-                        showToast('Produto excluído do catálogo.');
-                      } catch (err) {
-                        setFormError(err instanceof Error ? err.message : 'Erro ao excluir produto.');
-                      }
+                      setConfirmDeleteProduct(true);
                     }}
                   >
                     <Icon name="trash" />Excluir
@@ -3572,18 +3758,20 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
                 )}
                 <button type="submit" className="button"><Icon name="plus" />Salvar usuário</button>
               </form>
-              {!company && <><div className="form-section-label"><Icon name="box" />MANUTENÇÃO DO BANCO DE DADOS</div>
+              <div className="form-section-label"><Icon name="box" />MANUTENÇÃO DO BANCO DE DADOS (MODO DE TESTES)</div>
               <div className="guide-summary" style={{ marginBottom: 12 }}>
-                Você pode iniciar o banco de dados completamente limpo (zerado) para cadastrar apenas os dados reais da sua empresa, ou carregar o cenário de exemplo para testes.
+                Você pode zerar o banco de dados para iniciar completamente limpo durante seus testes, ou carregar os dados de exemplo.
               </div>
               <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-                <button
-                  type="button"
-                  className="button secondary"
-                  onClick={() => { setFormError(''); setModal({ type: 'reset', mode: 'seed' }); }}
-                >
-                  <Icon name="box" />Carregar dados de exemplo
-                </button>
+                {(!company || companyConfig.fieldService) && (
+                  <button
+                    type="button"
+                    className="button secondary"
+                    onClick={() => { setFormError(''); setModal({ type: 'reset', mode: 'seed' }); }}
+                  >
+                    <Icon name="box" />Carregar dados de exemplo
+                  </button>
+                )}
                 <button
                   type="button"
                   className="button danger"
@@ -3591,8 +3779,7 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
                 >
                   <Icon name="reset" />Zerar banco de dados (iniciar limpo)
                 </button>
-              </div></>}
-              {company && <p className="guide-summary">Administrador da empresa: gerencie os usuários desta operação. Perfil, módulos e limites são definidos pelo administrador da plataforma.</p>}
+              </div>
             </div>
             <div className="modal-footer">
               <button className="button secondary" onClick={() => setModal(null)}>Fechar</button>
@@ -3757,13 +3944,21 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
             <strong>{isOpsUser ? (company ? 'Administração da empresa' : 'Administração e acessos') : 'Operação rastreada'}</strong>
             <p>
               {isOpsUser
-                ? (company ? 'Gerencie os usuários e logins da sua empresa.' : 'Gerencie usuários, logins da equipe e manutenção do banco de dados.')
+                ? 'Gerencie usuários, logins da equipe e manutenção do banco de dados.'
                 : 'Registre chegadas, aplicações em OS e devoluções em tempo real.'}
             </p>
             {isOpsUser ? (
-              <button onClick={() => { setFormError(''); setConfirmDeleteUser(null); setModal({ type: 'system' }); }}>
-                {company ? 'Usuários da empresa' : 'Acessos e banco de dados'} <Icon name="arrow" />
-              </button>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <button onClick={() => { setFormError(''); setConfirmDeleteUser(null); setModal({ type: 'system' }); }}>
+                  Acessos e banco de dados <Icon name="arrow" />
+                </button>
+                <button
+                  onClick={() => { setFormError(''); setModal({ type: 'reset', mode: 'empty' }); }}
+                  style={{ background: 'rgba(180, 35, 24, 0.25)', borderColor: 'rgba(248, 113, 113, 0.4)', color: '#fecaca' }}
+                >
+                  Zerar banco (teste) <Icon name="reset" />
+                </button>
+              </div>
             ) : (
               <button onClick={handleLogout}>
                 Encerrar sessão <Icon name="logout" />

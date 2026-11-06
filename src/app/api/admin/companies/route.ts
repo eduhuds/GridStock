@@ -1,5 +1,5 @@
-import { platformOverview, revokeCompanySessions, requireMaster, saveCompany } from '@/lib/companies';
-import { pullPlatformFromSupabase, pushPlatformToSupabase } from '@/lib/supabaseStore';
+import { platformOverview, revokeCompanySessions, resetCompanyData, deleteCompany, requireMaster, saveCompany } from '@/lib/companies';
+import { deleteCompanyFromSupabase, pullPlatformFromSupabase, pushPlatformToSupabase } from '@/lib/supabaseStore';
 
 export const dynamic = 'force-dynamic';
 
@@ -42,9 +42,19 @@ export async function PATCH(req: Request) {
   }
   try {
     const body = await req.json();
-    if (body.action !== 'revokeSessions') throw new Error('Ação inválida.');
-    revokeCompanySessions(String(body.id));
-    await pushPlatformToSupabase(String(body.id));
+    const companyId = String(body.id || '');
+    if (body.action === 'revokeSessions') {
+      revokeCompanySessions(companyId);
+      await pushPlatformToSupabase(companyId);
+    } else if (body.action === 'resetCompany') {
+      resetCompanyData(companyId);
+      await pushPlatformToSupabase(companyId);
+    } else if (body.action === 'deleteCompany') {
+      deleteCompany(companyId);
+      await deleteCompanyFromSupabase(companyId);
+    } else {
+      throw new Error('Ação inválida.');
+    }
     return Response.json(platformOverview());
   } catch (e) {
     return Response.json({ error: e instanceof Error ? e.message : 'Falha na ação.' }, { status: 400 });

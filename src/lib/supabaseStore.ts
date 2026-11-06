@@ -72,6 +72,15 @@ export async function pushPlatformToSupabase(companyId?: string): Promise<boolea
   }
 }
 
+export async function deleteCompanyFromSupabase(companyId: string): Promise<void> {
+  const sb = getSupabaseAdminClient();
+  if (!sb) return;
+  try {
+    await sb.from('app_meta').delete().eq('key', `${COMPANY_DB_PREFIX}${companyId}`);
+    await pushPlatformToSupabase();
+  } catch {}
+}
+
 /**
  * Pull platform registry and all company databases from Supabase app_meta into local SQLite.
  */
@@ -108,10 +117,7 @@ export async function pullPlatformFromSupabase(): Promise<void> {
           usersData.find(u => String(u.role) === 'ops');
         if (owner) {
           importPlatformRegistry({
-            companies: [],
             masterAccount: { username: owner.username, password_hash: owner.password_hash },
-            masterSessions: [],
-            platformAudit: [],
           });
         }
       }

@@ -4,7 +4,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
 import { authenticate, createDatabase, getDb, hashPassword, verifyPassword, saveUser, loadState, saveState, getUserFromRequest } from './db';
-import type { GridStockState } from './domain';
+import { emptyState, type GridStockState } from './domain';
 
 export interface Company {
   id: string; slug: string; name: string; tagline: string;
@@ -170,7 +170,7 @@ export function enforceCompanyAction(req: Request, action: string, body: Record<
   if (!config.fieldService && (action === 'technicians' || (action === 'login' && body.role === 'tech') || (action === 'users' && body.role === 'tech') || (action === 'movements' && fieldKinds.includes(String(body.kind))))) throw new Error('Equipe em campo não está habilitada para esta empresa.');
   if (action === 'movements' && body.kind === 'stockout' && !config.stockOut) throw new Error('Saídas de estoque não estão habilitadas para esta empresa.');
   if (action === 'movements' && body.kind === 'transfer' && !config.transfers) throw new Error('Transferências não estão habilitadas para esta empresa.');
-  if (action === 'reset' && req.headers.has('x-gridstock-company')) throw new Error('A administração da empresa não pode redefinir os dados da operação.');
+  if (action === 'reset' && body.mode === 'seed' && !config.fieldService) throw new Error('Dados de exemplo de campo exigem o módulo de equipe em campo.');
   const db = databaseForRequest(req);
   if (action === 'users' && !body.id && (db.prepare('SELECT COUNT(*) AS n FROM users').get() as {n:number}).n >= config.maxUsers) throw new Error('Limite de usuários atingido. Consulte o administrador da plataforma.');
   if (action === 'warehouses' && !body.id && loadState(db).warehouses.length >= config.maxWarehouses) throw new Error('Limite de estoques atingido. Consulte o administrador da plataforma.');
@@ -197,6 +197,37 @@ export function revokeCompanySessions(id: string) {
   companyDb(company).exec('DELETE FROM sessions');
   audit(company, 'Sessões encerradas', 'Todos os usuários precisarão entrar novamente.');
 }
+export function resetCompanyData(id: string) {
+  const company = listCompanies().find(c => c.id === id);
+  if (!company) throw new Error('Empresa não encontrada.');
+  const db = companyDb(company);
+  saveState(db, emptyState());
+  const techUsers = db.prepare("SELECT id FROM users WHERE role = 'tech'").all() as { id: string }[];
+  for (const tu of techUsers) {
+    db.prepare('DELETE FROM sessions WHERE user_id = ?').run(tu.id);
+  }
+  db.exec("DELETE FROM users WHERE role = 'tech'");
+  audit(company, 'Banco zerado', 'Estoques, produtos, técnicos e movimentações foram limpos.');
+}
+export function deleteCompany(id: string) {
+  const company = listCompanies().find(c => c.id === id);
+  if (!company) throw new Error('Empresa não encontrada.');
+  const conn = cache.companyDbs?.get(company.id);
+  if (conn) {
+    try { conn.close(); } catch {}
+    cache.companyDbs?.delete(company.id);
+  }
+  const root = process.env.GRIDSTOCK_DB;
+  if (root !== ':memory:') {
+    const baseDir = root ? path.dirname(root) : process.env.VERCEL ? '/tmp' : path.join(process.cwd(), 'data');
+    const dbPath = path.join(baseDir, 'companies', `${company.id}.db`);
+    for (const suffix of ['', '-shm', '-wal']) {
+      try { fs.rmSync(dbPath + suffix, { force: true }); } catch {}
+    }
+  }
+  registry().prepare('DELETE FROM companies WHERE id = ?').run(company.id);
+  audit(company, 'Empresa excluída', 'Empresa e dados removidos da plataforma.');
+}
 
 export interface PlatformRegistrySnapshot {
   companies: Record<string, unknown>[];
@@ -221,18 +252,17 @@ export function exportPlatformRegistry(): PlatformRegistrySnapshot {
   };
 }
 
-export function importPlatformRegistry(snapshot: PlatformRegistrySnapshot) {
+export function importPlatformRegistry(snapshot: Partial<PlatformRegistrySnapshot>) {
   if (!snapshot || typeof snapshot !== 'object') return;
   const db = registry();
   db.exec('BEGIN IMMEDIATE');
   try {
     if (Array.isArray(snapshot.companies)) {
-      const delSlug = db.prepare('DELETE FROM companies WHERE slug = ? AND id != ?');
+      db.exec('DELETE FROM companies');
       const ins = db.prepare(
-        'INSERT INTO companies (id, slug, name, tagline, color, active, createdAt, config) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET slug=excluded.slug, name=excluded.name, tagline=excluded.tagline, color=excluded.color, active=excluded.active, config=excluded.config'
+        'INSERT INTO companies (id, slug, name, tagline, color, active, createdAt, config) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
       );
       for (const c of snapshot.companies) {
-        delSlug.run(String(c.slug), String(c.id));
         ins.run(
           String(c.id),
           String(c.slug),
