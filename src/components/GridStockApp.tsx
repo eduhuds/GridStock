@@ -159,6 +159,7 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
   const [loginPass, setLoginPass] = useState<string>('');
   const [loginError, setLoginError] = useState<string>('');
   const [loginLoading, setLoginLoading] = useState<boolean>(false);
+  const [companyChoices, setCompanyChoices] = useState<{ slug: string; name: string; color: string; token: string }[]>([]);
 
   // Dynamic modal form states
   const [moveTechId, setMoveTechId] = useState<string>('');
@@ -539,9 +540,20 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
   const handleLogin = async (ev: React.FormEvent) => {
     ev.preventDefault();
     setLoginError('');
+    setCompanyChoices([]);
     setLoginLoading(true);
     try {
       const data = await apiCall('POST', '/api/auth/login', { username: loginUser, password: loginPass, role: entryRole });
+      if (Array.isArray(data.companyChoices) && data.companyChoices.length > 0) {
+        setCompanyChoices(data.companyChoices);
+        return;
+      }
+      if (data.companySlug && data.companySlug !== companySlug) {
+        const companyTokenKey = `${entryRole === 'tech' ? 'gridstock-tech-auth-token' : 'gridstock-auth-token'}:${data.companySlug}`;
+        localStorage.setItem(companyTokenKey, data.token);
+        window.location.href = entryRole === 'tech' ? `/empresa/${data.companySlug}/tecnico` : `/empresa/${data.companySlug}`;
+        return;
+      }
       applyServerPayload(data);
       setView(data.user.role === 'tech' ? 'tech' : 'ops');
       setPage('overview');
@@ -695,6 +707,31 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
               <h2>{entryRole === 'tech' ? 'Área do técnico' : 'Controle operacional'}</h2>
               <p>{entryRole === 'tech' ? 'Entre para informar seu estoque pessoal e as peças que levará hoje.' : (companyConfig.fieldService ? 'Entre para acompanhar os estoques e a equipe em campo.' : 'Entre para gerenciar os produtos e estoques da sua empresa.')}</p>
               {loginError && <div className="error" role="alert">{loginError}</div>}
+              {companyChoices.length > 0 && (
+                <div className="panel" style={{ padding: '14px', marginBottom: '14px', background: '#f4f8f5', borderColor: '#cfe0d6' }}>
+                  <strong style={{ display: 'block', marginBottom: '8px', fontSize: '0.92rem' }}>
+                    Selecione a empresa que deseja acessar:
+                  </strong>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    {companyChoices.map(choice => (
+                      <button
+                        key={choice.slug}
+                        type="button"
+                        className="button secondary full"
+                        style={{ justifyContent: 'space-between', borderColor: choice.color }}
+                        onClick={() => {
+                          const companyTokenKey = `${entryRole === 'tech' ? 'gridstock-tech-auth-token' : 'gridstock-auth-token'}:${choice.slug}`;
+                          localStorage.setItem(companyTokenKey, choice.token);
+                          window.location.href = entryRole === 'tech' ? `/empresa/${choice.slug}/tecnico` : `/empresa/${choice.slug}`;
+                        }}
+                      >
+                        <span>{choice.name}</span>
+                        <span className="muted small">/empresa/{choice.slug} →</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
               <div className="field">
                 <label htmlFor="login-user">Usuário</label>
                 <input

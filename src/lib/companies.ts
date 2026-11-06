@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
-import { createDatabase, getDb, hashPassword, verifyPassword, saveUser, loadState, saveState, getUserFromRequest } from './db';
+import { authenticate, createDatabase, getDb, hashPassword, verifyPassword, saveUser, loadState, saveState, getUserFromRequest } from './db';
 import type { GridStockState } from './domain';
 
 export interface Company {
@@ -70,6 +70,30 @@ export function databaseForRequest(req: Request) {
   const user = getUserFromRequest(req, db);
   if (user?.role === 'tech' && !company.config.fieldService) throw new Error('O módulo de equipe em campo está desabilitado.');
   return db;
+}
+
+export function authenticateCompanyFallback(username: unknown, password: unknown, requiredRole?: string) {
+  const matches: { company: Company; db: DatabaseSync; token: string; user: ReturnType<typeof authenticate>['user'] }[] = [];
+  for (const company of listCompanies()) {
+    if (!company.active) continue;
+    if (requiredRole === 'tech' && !company.config.fieldService) continue;
+    const db = companyDb(company);
+    try {
+      const auth = authenticate(username, password, db);
+      if (requiredRole && auth.user.role !== requiredRole) {
+        db.prepare('DELETE FROM sessions WHERE token = ?').run(auth.token);
+        continue;
+      }
+      if (auth.user.role === 'tech' && !company.config.fieldService) {
+        db.prepare('DELETE FROM sessions WHERE token = ?').run(auth.token);
+        continue;
+      }
+      matches.push({ company, db, ...auth });
+    } catch {
+      continue;
+    }
+  }
+  return matches;
 }
 function masterToken(req: Request) { return (req.headers.get('authorization') || '').replace(/^Bearer /, ''); }
 export function requireMaster(req: Request) {
