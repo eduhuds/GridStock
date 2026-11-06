@@ -1,12 +1,13 @@
 import { databaseForRequest, configForRequest } from '@/lib/companies';
 import { NextResponse } from 'next/server';
 import { stateForUser, getUserFromRequest, listUsers, loadState } from '@/lib/db';
-import { ensureSupabaseSynced } from '@/lib/supabaseStore';
+import { ensureSupabaseSynced, pullPlatformFromSupabase } from '@/lib/supabaseStore';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(req: Request) {
   try {
+    await pullPlatformFromSupabase();
     const db = databaseForRequest(req);
     await ensureSupabaseSynced(db);
     const user = getUserFromRequest(req, db);

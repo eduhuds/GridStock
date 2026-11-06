@@ -3,7 +3,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
-import { createDatabase, getDb, hashPassword, verifyPassword, saveUser, loadState, getUserFromRequest } from './db';
+import { createDatabase, getDb, hashPassword, verifyPassword, saveUser, loadState, saveState, getUserFromRequest } from './db';
+import type { GridStockState } from './domain';
 
 export interface Company {
   id: string; slug: string; name: string; tagline: string;
@@ -34,6 +35,12 @@ export function findCompany(slug: string): Company | undefined {
 }
 export function isCompanyDatabase(db: DatabaseSync) {
   return [...cache.companyDbs!.values()].includes(db);
+}
+export function companyIdForDatabase(db: DatabaseSync): string | null {
+  for (const [id, conn] of cache.companyDbs!.entries()) {
+    if (conn === db) return id;
+  }
+  return null;
 }
 function companyDb(company: Company) {
   if (!cache.companyDbs!.has(company.id)) {
@@ -161,4 +168,139 @@ export function revokeCompanySessions(id: string) {
   if (!company) throw new Error('Empresa não encontrada.');
   companyDb(company).exec('DELETE FROM sessions');
   audit(company, 'Sessões encerradas', 'Todos os usuários precisarão entrar novamente.');
+}
+
+export interface PlatformRegistrySnapshot {
+  companies: Record<string, unknown>[];
+  masterAccount: Record<string, unknown> | null;
+  masterSessions: Record<string, unknown>[];
+  platformAudit: Record<string, unknown>[];
+}
+
+export interface CompanyDbSnapshot {
+  users: Record<string, unknown>[];
+  sessions: Record<string, unknown>[];
+  state: GridStockState;
+}
+
+export function exportPlatformRegistry(): PlatformRegistrySnapshot {
+  const db = registry();
+  return {
+    companies: db.prepare('SELECT * FROM companies ORDER BY createdAt DESC').all() as Record<string, unknown>[],
+    masterAccount: (db.prepare('SELECT * FROM master_account WHERE id=1').get() as Record<string, unknown> | undefined) || null,
+    masterSessions: db.prepare('SELECT * FROM master_sessions').all() as Record<string, unknown>[],
+    platformAudit: db.prepare('SELECT * FROM platform_audit ORDER BY id ASC').all() as Record<string, unknown>[],
+  };
+}
+
+export function importPlatformRegistry(snapshot: PlatformRegistrySnapshot) {
+  if (!snapshot || typeof snapshot !== 'object') return;
+  const db = registry();
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    if (Array.isArray(snapshot.companies)) {
+      db.exec('DELETE FROM companies');
+      const ins = db.prepare(
+        'INSERT INTO companies (id, slug, name, tagline, color, active, createdAt, config) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+      );
+      for (const c of snapshot.companies) {
+        ins.run(
+          String(c.id),
+          String(c.slug),
+          String(c.name),
+          String(c.tagline || ''),
+          String(c.color || '#285d48'),
+          Number(c.active ?? 1),
+          Number(c.createdAt || Date.now()),
+          typeof c.config === 'string' ? c.config : JSON.stringify(c.config || {})
+        );
+      }
+    }
+    if (snapshot.masterAccount && snapshot.masterAccount.username && snapshot.masterAccount.password_hash) {
+      db.prepare('INSERT OR REPLACE INTO master_account (id, username, password_hash) VALUES (1, ?, ?)').run(
+        String(snapshot.masterAccount.username),
+        String(snapshot.masterAccount.password_hash)
+      );
+    }
+    if (Array.isArray(snapshot.masterSessions)) {
+      db.exec('DELETE FROM master_sessions');
+      const insS = db.prepare('INSERT INTO master_sessions (token, created_at) VALUES (?, ?)');
+      for (const s of snapshot.masterSessions) {
+        insS.run(String(s.token), Number(s.created_at));
+      }
+    }
+    if (Array.isArray(snapshot.platformAudit)) {
+      db.exec('DELETE FROM platform_audit');
+      const insA = db.prepare(
+        'INSERT INTO platform_audit (id, company_id, company_name, action, detail, ts) VALUES (?, ?, ?, ?, ?, ?)'
+      );
+      for (const a of snapshot.platformAudit) {
+        insA.run(
+          Number(a.id),
+          String(a.company_id),
+          String(a.company_name),
+          String(a.action),
+          String(a.detail || ''),
+          Number(a.ts)
+        );
+      }
+    }
+    db.exec('COMMIT');
+  } catch (err) {
+    db.exec('ROLLBACK');
+    throw err;
+  }
+}
+
+export function exportCompanySnapshot(companyId: string): CompanyDbSnapshot | null {
+  const company = listCompanies().find(c => c.id === companyId);
+  if (!company) return null;
+  const tenantDb = companyDb(company);
+  return {
+    users: tenantDb.prepare('SELECT * FROM users').all() as Record<string, unknown>[],
+    sessions: tenantDb.prepare('SELECT * FROM sessions').all() as Record<string, unknown>[],
+    state: loadState(tenantDb),
+  };
+}
+
+export function importCompanySnapshot(companyId: string, snapshot: CompanyDbSnapshot) {
+  const company = listCompanies().find(c => c.id === companyId);
+  if (!company || !snapshot) return;
+  const tenantDb = companyDb(company);
+  tenantDb.exec('BEGIN IMMEDIATE');
+  try {
+    if (Array.isArray(snapshot.users)) {
+      tenantDb.exec('DELETE FROM users');
+      const insU = tenantDb.prepare(
+        'INSERT INTO users (id, username, name, password_hash, role, technician_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+      );
+      for (const u of snapshot.users) {
+        insU.run(
+          String(u.id),
+          String(u.username),
+          String(u.name),
+          String(u.password_hash),
+          String(u.role || 'ops'),
+          u.technician_id ? String(u.technician_id) : null,
+          Number(u.created_at || Date.now())
+        );
+      }
+    }
+    if (Array.isArray(snapshot.sessions)) {
+      tenantDb.exec('DELETE FROM sessions');
+      const insS = tenantDb.prepare(
+        'INSERT INTO sessions (token, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)'
+      );
+      for (const s of snapshot.sessions) {
+        insS.run(String(s.token), String(s.user_id), Number(s.created_at), Number(s.expires_at));
+      }
+    }
+    tenantDb.exec('COMMIT');
+  } catch (err) {
+    tenantDb.exec('ROLLBACK');
+    throw err;
+  }
+  if (snapshot.state) {
+    saveState(tenantDb, snapshot.state);
+  }
 }

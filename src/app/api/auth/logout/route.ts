@@ -1,12 +1,13 @@
 import { databaseForRequest } from '@/lib/companies';
 import { NextResponse } from 'next/server';
 import { logoutRequest } from '@/lib/db';
-import { pushAllToSupabase } from '@/lib/supabaseStore';
+import { pullPlatformFromSupabase, pushAllToSupabase } from '@/lib/supabaseStore';
 
 export const dynamic = 'force-dynamic';
 
 export async function POST(req: Request) {
   try {
+    await pullPlatformFromSupabase();
     const db = databaseForRequest(req);
     logoutRequest(req, db);
     await pushAllToSupabase(db);

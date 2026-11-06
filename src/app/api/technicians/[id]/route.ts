@@ -2,12 +2,13 @@ import { databaseForRequest, enforceCompanyAction } from '@/lib/companies';
 import { NextResponse } from 'next/server';
 import { getUserFromRequest, listUsers, loadState, saveState } from '@/lib/db';
 import { deleteTechnician } from '@/lib/domain';
-import { ensureSupabaseSynced, pushAllToSupabase } from '@/lib/supabaseStore';
+import { ensureSupabaseSynced, pullPlatformFromSupabase, pushAllToSupabase } from '@/lib/supabaseStore';
 
 export const dynamic = 'force-dynamic';
 
 export async function DELETE(req: Request, context: { params: Promise<{ id: string }> }) {
   try {
+    await pullPlatformFromSupabase();
     enforceCompanyAction(req, 'technicians');
     const db = databaseForRequest(req);
     await ensureSupabaseSynced(db);

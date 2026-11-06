@@ -1,12 +1,13 @@
 import { databaseForRequest } from '@/lib/companies';
 import { NextResponse } from 'next/server';
 import { deleteUser, getUserFromRequest, listUsers } from '@/lib/db';
-import { ensureSupabaseSynced, pushAllToSupabase } from '@/lib/supabaseStore';
+import { ensureSupabaseSynced, pullPlatformFromSupabase, pushAllToSupabase } from '@/lib/supabaseStore';
 
 export const dynamic = 'force-dynamic';
 
 export async function DELETE(req: Request, context: { params: Promise<{ id: string }> }) {
   try {
+    await pullPlatformFromSupabase();
     const db = databaseForRequest(req);
     await ensureSupabaseSynced(db);
     const user = getUserFromRequest(req, db);

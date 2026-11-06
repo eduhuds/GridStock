@@ -1,6 +1,19 @@
-import { isCompanyDatabase } from './companies';
+import {
+  isCompanyDatabase,
+  companyIdForDatabase,
+  listCompanies,
+  exportPlatformRegistry,
+  importPlatformRegistry,
+  exportCompanySnapshot,
+  importCompanySnapshot,
+  type PlatformRegistrySnapshot,
+  type CompanyDbSnapshot,
+} from './companies';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import type { DatabaseSync } from 'node:sqlite';
+
+const PLATFORM_REGISTRY_KEY = '__platform_registry__';
+const COMPANY_DB_PREFIX = '__company_db__:';
 
 const TABLES = [
   'users',
@@ -34,11 +47,71 @@ export function getSupabaseAdminClient(): SupabaseClient | null {
 }
 
 /**
+ * Push platform registry (companies, master_account, master_sessions, platform_audit)
+ * and one or all company databases to Supabase app_meta.
+ */
+export async function pushPlatformToSupabase(companyId?: string): Promise<boolean> {
+  const sb = getSupabaseAdminClient();
+  if (!sb) return false;
+  try {
+    const registryPayload = exportPlatformRegistry();
+    const rows: { key: string; value: string }[] = [
+      { key: PLATFORM_REGISTRY_KEY, value: JSON.stringify(registryPayload) },
+    ];
+    const ids = companyId ? [companyId] : listCompanies().map(c => c.id);
+    for (const id of ids) {
+      const snap = exportCompanySnapshot(id);
+      if (snap) {
+        rows.push({ key: `${COMPANY_DB_PREFIX}${id}`, value: JSON.stringify(snap) });
+      }
+    }
+    const { error } = await sb.from('app_meta').upsert(rows, { onConflict: 'key' });
+    return !error;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Pull platform registry and all company databases from Supabase app_meta into local SQLite.
+ */
+export async function pullPlatformFromSupabase(): Promise<void> {
+  const sb = getSupabaseAdminClient();
+  if (!sb) return;
+  try {
+    const { data, error } = await sb
+      .from('app_meta')
+      .select('key, value')
+      .or(`key.eq.${PLATFORM_REGISTRY_KEY},key.like.${COMPANY_DB_PREFIX}%`);
+    if (error || !data || data.length === 0) return;
+
+    const regRow = data.find(r => r.key === PLATFORM_REGISTRY_KEY);
+    if (regRow?.value) {
+      const parsed = JSON.parse(String(regRow.value)) as PlatformRegistrySnapshot;
+      importPlatformRegistry(parsed);
+    }
+
+    for (const row of data) {
+      if (String(row.key).startsWith(COMPANY_DB_PREFIX) && row.value) {
+        const companyId = String(row.key).slice(COMPANY_DB_PREFIX.length);
+        const snap = JSON.parse(String(row.value)) as CompanyDbSnapshot;
+        importCompanySnapshot(companyId, snap);
+      }
+    }
+  } catch {
+    // Ignore errors in offline or uninitialized mode
+  }
+}
+
+/**
  * Push all current SQLite tables to Supabase Postgres.
  * Safe no-op if Supabase is not configured or schema.sql has not been applied yet.
  */
 export async function pushAllToSupabase(db: DatabaseSync): Promise<boolean> {
-  if (isCompanyDatabase(db)) return false;
+  if (isCompanyDatabase(db)) {
+    const cid = companyIdForDatabase(db);
+    return pushPlatformToSupabase(cid || undefined);
+  }
   const sb = getSupabaseAdminClient();
   if (!sb) return false;
 
@@ -115,6 +188,7 @@ export async function pushAllToSupabase(db: DatabaseSync): Promise<boolean> {
       await sb.from('movements').insert(movements);
     }
 
+    await pushPlatformToSupabase();
     return true;
   } catch {
     return false;
@@ -126,6 +200,7 @@ export async function pushAllToSupabase(db: DatabaseSync): Promise<boolean> {
  * or push local seed/empty state to Supabase if Supabase tables are newly created and empty.
  */
 export async function ensureSupabaseSynced(db: DatabaseSync, forcePull = false): Promise<void> {
+  await pullPlatformFromSupabase();
   if (isCompanyDatabase(db)) return;
   if (initialSyncDone && !forcePull) return;
   const sb = getSupabaseAdminClient();
@@ -139,9 +214,12 @@ export async function ensureSupabaseSynced(db: DatabaseSync, forcePull = false):
     }
 
     initialSyncDone = true;
+    const coreMetaRows = metaRows.filter(
+      m => m.key !== PLATFORM_REGISTRY_KEY && !String(m.key).startsWith(COMPANY_DB_PREFIX)
+    );
 
     // If Supabase tables exist but are empty, push our local SQLite data up to Supabase!
-    if (metaRows.length === 0) {
+    if (coreMetaRows.length === 0) {
       await pushAllToSupabase(db);
       return;
     }
@@ -201,7 +279,7 @@ export async function ensureSupabaseSynced(db: DatabaseSync, forcePull = false):
 
       db.exec('DELETE FROM app_meta');
       const insMeta = db.prepare('INSERT INTO app_meta (key, value) VALUES (?, ?)');
-      for (const m of metaRows) {
+      for (const m of coreMetaRows) {
         insMeta.run(String(m.key), String(m.value));
       }
 

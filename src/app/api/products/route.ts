@@ -2,12 +2,13 @@ import { databaseForRequest } from '@/lib/companies';
 import { NextResponse } from 'next/server';
 import { getUserFromRequest, loadState, saveState } from '@/lib/db';
 import { saveProduct } from '@/lib/domain';
-import { ensureSupabaseSynced, pushAllToSupabase } from '@/lib/supabaseStore';
+import { ensureSupabaseSynced, pullPlatformFromSupabase, pushAllToSupabase } from '@/lib/supabaseStore';
 
 export const dynamic = 'force-dynamic';
 
 export async function POST(req: Request) {
   try {
+    await pullPlatformFromSupabase();
     const db = databaseForRequest(req);
     await ensureSupabaseSynced(db);
     const user = getUserFromRequest(req, db);
