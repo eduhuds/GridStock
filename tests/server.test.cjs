@@ -36,8 +36,11 @@ test('API inicia com banco limpo, exige autenticação e permite fluxo real comp
     const unauth = await req('GET', '/api/bootstrap');
     assert.equal(unauth.status, 401);
 
-    // 2. Login como admin padrão
-    const login = await req('POST', '/api/auth/login', { username: 'admin', password: 'admin123' });
+    // 2. Login como admin configurado no .env
+    const login = await req('POST', '/api/auth/login', {
+      username: process.env.GRIDSTOCK_ADMIN_USERNAME,
+      password: process.env.GRIDSTOCK_ADMIN_PASSWORD
+    });
     assert.equal(login.status, 200);
     const adminToken = login.data.token;
     assert.ok(adminToken);

@@ -2,6 +2,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
+
+const envPath = path.resolve(process.cwd(), '.env');
+if (typeof process.loadEnvFile === 'function' && fs.existsSync(envPath)) {
+  try { process.loadEnvFile(envPath); } catch {}
+}
 import {
   emptyState,
   seed,
@@ -181,12 +186,16 @@ export function createDatabase(resolved: string, createAdmin = true): DatabaseSy
   `);
 
   const countRow = db.prepare('SELECT COUNT(*) AS cnt FROM users').get() as { cnt: number };
-  if (createAdmin && countRow.cnt === 0) {
+  const adminUser = process.env.GRIDSTOCK_ADMIN_USERNAME;
+  const adminPass = process.env.GRIDSTOCK_ADMIN_PASSWORD;
+  const adminName = process.env.GRIDSTOCK_ADMIN_NAME || 'Controle Operacional';
+  const adminId = process.env.GRIDSTOCK_MASTER_USER_ID || 'u-admin';
+  if (createAdmin && countRow.cnt === 0 && adminUser && adminPass) {
     const now = Date.now();
     db.prepare(`
       INSERT INTO users (id, username, name, password_hash, role, technician_id, created_at)
       VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).run('u-admin', 'admin', 'Controle Operacional', hashPassword('admin123'), 'ops', null, now);
+    `).run(adminId, adminUser, adminName, hashPassword(adminPass), 'ops', null, now);
   }
 
   const metaVersion = db.prepare('SELECT value FROM app_meta WHERE key = ?').get('version');

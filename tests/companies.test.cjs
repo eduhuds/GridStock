@@ -14,6 +14,9 @@ const companies = require(path.join(temp, 'companies.js'));
 const request = (slug, token) => new Request('http://local/api/bootstrap', { headers: { ...(slug === undefined ? {} : { 'X-Gridstock-Company': slug }), ...(token ? { Authorization: `Bearer ${token}` } : {}) } });
 after(() => { for (const connection of global.companyDbs.values()) connection.close(); db.getDb().close(); rmSync(temp, { recursive: true, force: true }); });
 
+const adminUser = process.env.GRIDSTOCK_ADMIN_USERNAME;
+const adminPass = process.env.GRIDSTOCK_ADMIN_PASSWORD;
+
 test('empresas isolam dados, logins repetidos, sessões, suspensão e persistência', () => {
   const a = companies.saveCompany({ name: 'Alpha', slug: 'alpha', username: 'gestor', password: 'alpha-pass' });
   const b = companies.saveCompany({ name: 'Beta', slug: 'beta', username: 'gestor', password: 'beta-pass' });
@@ -21,7 +24,7 @@ test('empresas isolam dados, logins repetidos, sessões, suspensão e persistên
   const bDb = companies.databaseForRequest(request(b.slug));
   assert.notEqual(aDb, bDb);
   assert.equal(db.listUsers(aDb).length, 1);
-  assert.throws(() => db.authenticate('admin', 'admin123', aDb));
+  assert.throws(() => db.authenticate(adminUser, adminPass, aDb));
   assert.throws(() => db.authenticate('gestor', 'alpha-pass', bDb));
   const aSession = db.authenticate('gestor', 'alpha-pass', aDb);
   const bSession = db.authenticate('gestor', 'beta-pass', bDb);
@@ -48,16 +51,16 @@ test('empresas isolam dados, logins repetidos, sessões, suspensão e persistên
 });
 
 test('administração exige sessão própria, protege credenciais e permite troca de senha', () => {
-  const ordinary = db.authenticate('admin', 'admin123');
+  const ordinary = db.authenticate(adminUser, adminPass);
   assert.throws(() => companies.requireMaster(request(undefined, ordinary.token)));
-  const master = companies.masterLogin('admin', 'admin123');
+  const master = companies.masterLogin(adminUser, adminPass);
   companies.requireMaster(request(undefined, master.token));
   assert.equal(db.getUserFromRequest(request(undefined, master.token)), null);
-  db.saveUser({ id: 'u-admin', username: 'admin', name: 'Admin', password: 'changed-root-password', role: 'ops' });
-  assert.throws(() => companies.masterLogin('admin', 'changed-root-password'));
-  companies.changeMasterPassword(request(undefined, master.token), 'admin123', 'new-master-pass');
-  assert.throws(() => companies.masterLogin('admin', 'admin123'));
-  const next = companies.masterLogin('admin', 'new-master-pass');
+  db.saveUser({ id: process.env.GRIDSTOCK_MASTER_USER_ID || 'u-admin', username: adminUser, name: 'Admin', password: 'changed-root-password', role: 'ops' });
+  assert.throws(() => companies.masterLogin(adminUser, 'changed-root-password'));
+  companies.changeMasterPassword(request(undefined, master.token), adminPass, 'new-master-pass');
+  assert.throws(() => companies.masterLogin(adminUser, adminPass));
+  const next = companies.masterLogin(adminUser, 'new-master-pass');
   companies.masterLogout(request(undefined, next.token));
   assert.throws(() => companies.requireMaster(request(undefined, next.token)));
 });

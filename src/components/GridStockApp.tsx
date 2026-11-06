@@ -3532,7 +3532,7 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
               {formError && <div className="error" role="alert">{formError}</div>}
               <p className="small muted" style={{ lineHeight: 1.8 }}>
                 {isSeed
-                  ? 'Os cadastros atuais serão substituídos pela base de exemplo (2 estoques, 8 produtos e 6 técnicos, com logins criados automaticamente com senha padrão 123456).'
+                  ? 'Os cadastros atuais serão substituídos pela base de exemplo (2 estoques, 8 produtos e 6 técnicos, com logins criados automaticamente conforme a senha padrão configurada no ambiente).'
                   : 'Todos os cadastros de estoques, produtos, técnicos e histórico serão apagados do banco de dados SQLite. Sua conta de Controle Operacional será mantida.'}
               </p>
             </div>

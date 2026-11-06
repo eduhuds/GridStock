@@ -201,11 +201,11 @@ function createApp({ dbPath } = {}) {
               db.prepare('DELETE FROM sessions WHERE user_id = ?').run(tu.id);
             }
             db.exec("DELETE FROM users WHERE role = 'tech'");
-          } else if (body.mode === 'seed') {
+          } else if (body.mode === 'seed' && process.env.GRIDSTOCK_SEED_TECH_PASSWORD) {
             for (const t of nextState.technicians) {
               const login = t.name.split(' ')[0].toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
               try {
-                syncTechnicianUser(db, t, login, '123456');
+                syncTechnicianUser(db, t, login, process.env.GRIDSTOCK_SEED_TECH_PASSWORD);
               } catch {}
             }
           }

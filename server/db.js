@@ -6,6 +6,13 @@ const crypto = require('node:crypto');
 const { DatabaseSync } = require('node:sqlite');
 const G = require('../dist/domain.js');
 
+try {
+  const envFile = path.join(__dirname, '..', '.env');
+  if (fs.existsSync(envFile) && typeof process.loadEnvFile === 'function') {
+    process.loadEnvFile(envFile);
+  }
+} catch {}
+
 function hashPassword(password) {
   const salt = crypto.randomBytes(16).toString('hex');
   const hash = crypto.scryptSync(String(password), salt, 64).toString('hex');
@@ -140,12 +147,16 @@ function createDatabase(dbPath) {
 
   // Ensure default admin exists
   const userCount = db.prepare('SELECT COUNT(*) AS cnt FROM users').get().cnt;
-  if (userCount === 0) {
+  const adminUser = process.env.GRIDSTOCK_ADMIN_USERNAME;
+  const adminPass = process.env.GRIDSTOCK_ADMIN_PASSWORD;
+  const adminName = process.env.GRIDSTOCK_ADMIN_NAME || 'Controle Operacional';
+  const adminId = process.env.GRIDSTOCK_MASTER_USER_ID || 'u-admin';
+  if (userCount === 0 && adminUser && adminPass) {
     const now = Date.now();
     db.prepare(`
       INSERT INTO users (id, username, name, password_hash, role, technician_id, created_at)
       VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).run('u-admin', 'admin', 'Controle Operacional', hashPassword('admin123'), 'ops', null, now);
+    `).run(adminId, adminUser, adminName, hashPassword(adminPass), 'ops', null, now);
   }
 
   // Ensure initial state metadata exists (clean database by default)
@@ -476,7 +487,7 @@ function syncTechnicianUser(db, technician, username, password) {
   return saveUser(db, {
     username: cleanUsername,
     name: technician.name,
-    password: cleanPassword || '123456',
+    password: cleanPassword || process.env.GRIDSTOCK_SEED_TECH_PASSWORD,
     role: 'tech',
     technicianId: technician.id
   });

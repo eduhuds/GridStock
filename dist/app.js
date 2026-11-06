@@ -92,7 +92,6 @@ function renderLogin(errorMsg=''){
     </div>
     <button class="button full" type="submit" id="login-submit">${icon('check')}Entrar no sistema</button>
     <div class="login-hint">
-     <strong>Acesso administrativo padrão:</strong> usuário <code>admin</code> · senha <code>admin123</code>.<br>
      No painel operacional você pode cadastrar novos usuários e criar logins individuais para os técnicos.
     </div>
    </form>
@@ -668,7 +667,7 @@ function systemModal(){
 
 function confirmDatabaseReset(mode){
  const isSeed=mode==='seed';
- showModal(isSeed?'Carregar dados de exemplo?':'Zerar banco de dados?',isSeed?'Preenche o banco SQLite com estoques, produtos, técnicos e movimentações de demonstração.':'Remove todos os estoques, produtos, técnicos e movimentações para começar do zero.',`<div class="modal-body"><div class="error" id="reset-error" role="alert"></div><p class="small muted" style="line-height:1.8">${isSeed?'Os cadastros atuais serão substituídos pela base de exemplo (2 estoques, 8 produtos e 6 técnicos, com logins criados automaticamente com senha padrão 123456).':'Todos os cadastros de estoques, produtos, técnicos e histórico serão apagados do banco de dados SQLite. Sua conta de Controle Operacional será mantida.'}</p></div>`,`<button class="button secondary" data-close>Cancelar</button><button class="button ${isSeed?'':'danger'}" id="confirm-reset-btn">${icon(isSeed?'check':'reset')}${isSeed?'Carregar base de exemplo':'Confirmar limpeza total'}</button>`);
+ showModal(isSeed?'Carregar dados de exemplo?':'Zerar banco de dados?',isSeed?'Preenche o banco SQLite com estoques, produtos, técnicos e movimentações de demonstração.':'Remove todos os estoques, produtos, técnicos e movimentações para começar do zero.',`<div class="modal-body"><div class="error" id="reset-error" role="alert"></div><p class="small muted" style="line-height:1.8">${isSeed?'Os cadastros atuais serão substituídos pela base de exemplo (2 estoques, 8 produtos e 6 técnicos, com logins criados automaticamente conforme a senha padrão configurada no ambiente).':'Todos os cadastros de estoques, produtos, técnicos e histórico serão apagados do banco de dados SQLite. Sua conta de Controle Operacional será mantida.'}</p></div>`,`<button class="button secondary" data-close>Cancelar</button><button class="button ${isSeed?'':'danger'}" id="confirm-reset-btn">${icon(isSeed?'check':'reset')}${isSeed?'Carregar base de exemplo':'Confirmar limpeza total'}</button>`);
  document.getElementById('confirm-reset-btn').onclick=async ()=>{
   try{
    if(apiOnline){

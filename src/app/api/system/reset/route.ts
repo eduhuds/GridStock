@@ -25,7 +25,7 @@ export async function POST(req: Request) {
         db.prepare('DELETE FROM sessions WHERE user_id = ?').run(tu.id);
       }
       db.exec("DELETE FROM users WHERE role = 'tech'");
-    } else if (body.mode === 'seed') {
+    } else if (body.mode === 'seed' && process.env.GRIDSTOCK_SEED_TECH_PASSWORD) {
       for (const t of nextState.technicians) {
         const login = t.name
           .split(' ')[0]
@@ -33,7 +33,7 @@ export async function POST(req: Request) {
           .normalize('NFD')
           .replace(/[\u0300-\u036f]/g, '');
         try {
-          syncTechnicianUser(t, login, '123456', db);
+          syncTechnicianUser(t, login, process.env.GRIDSTOCK_SEED_TECH_PASSWORD, db);
         } catch {}
       }
     }
