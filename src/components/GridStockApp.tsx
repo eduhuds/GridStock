@@ -1,5 +1,8 @@
 'use client';
 
+import StockWorkspace from './StockWorkspace';
+import { defaultConfig, type CompanyConfig } from '@/lib/companyConfig';
+
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   GridStockState,
@@ -90,6 +93,7 @@ function parsePlacementGps(raw?: string | null): { text: string; coords: string 
 }
 
 const kindMap: Record<MovementKind, [string, string, string]> = {
+  stockout: ['Saída de estoque', 'amber', 'out'],
   withdraw: ['Retirada', 'green', 'out'],
   return: ['Devolução', 'blue', 'in'],
   use: ['Utilização', 'amber', 'tool'],
@@ -116,8 +120,17 @@ type ModalState =
   | { type: 'system' }
   | { type: 'reset'; mode: 'seed' | 'empty' };
 
-export default function GridStockApp({ entryRole = 'ops' }: { entryRole?: 'ops' | 'tech' }) {
-  const TOKEN_KEY = entryRole === 'tech' ? 'gridstock-tech-auth-token' : 'gridstock-auth-token';
+export default function GridStockApp({ entryRole = 'ops', company }: { entryRole?: 'ops' | 'tech'; company?: { slug: string; name: string; color: string; tagline: string; config: CompanyConfig } }) {
+  const [companyConfig, setCompanyConfig] = useState<CompanyConfig>(company?.config || defaultConfig);
+  const companySlug = company?.slug || '';
+  const companyBase = companySlug ? `/empresa/${companySlug}` : '';
+  useEffect(() => {
+    if (!company) return;
+    document.documentElement.style.setProperty('--green', company.color);
+    document.title = `${company.name} · GRIDSTOCK`;
+    return () => { document.documentElement.style.removeProperty('--green'); };
+  }, [company]);
+  const TOKEN_KEY = (entryRole === 'tech' ? 'gridstock-tech-auth-token' : 'gridstock-auth-token') + (companySlug ? `:${companySlug}` : '');
   const [state, setState] = useState<GridStockState>(() => emptyState());
   const [users, setUsers] = useState<UserAccount[]>([]);
   const [currentUser, setCurrentUser] = useState<UserAccount | null>(null);
@@ -253,7 +266,8 @@ export default function GridStockApp({ entryRole = 'ops' }: { entryRole?: 'ops' 
   }, []);
 
   const applyServerPayload = useCallback(
-    (data: { token?: string; user?: UserAccount; state?: GridStockState; users?: UserAccount[] }) => {
+    (data: { token?: string; user?: UserAccount; state?: GridStockState; users?: UserAccount[]; config?: CompanyConfig }) => {
+      if (data.config) setCompanyConfig(data.config);
       if (data.token) {
         setAuthToken(data.token);
         localStorage.setItem(TOKEN_KEY, data.token);
@@ -284,6 +298,7 @@ export default function GridStockApp({ entryRole = 'ops' }: { entryRole?: 'ops' 
     async (method: string, url: string, body?: unknown, customToken?: string) => {
       const tk = customToken ?? authToken;
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (companySlug) headers['X-Gridstock-Company'] = companySlug;
       if (tk) headers['Authorization'] = `Bearer ${tk}`;
       const res = await fetch(url, {
         method,
@@ -302,14 +317,14 @@ export default function GridStockApp({ entryRole = 'ops' }: { entryRole?: 'ops' 
       }
       return data;
     },
-    [authToken, TOKEN_KEY]
+    [authToken, TOKEN_KEY, companySlug]
   );
 
   useEffect(() => {
     const savedToken = localStorage.getItem(TOKEN_KEY) || '';
     setAuthToken(savedToken);
     fetch('/api/bootstrap', {
-      headers: savedToken ? { Authorization: `Bearer ${savedToken}` } : {},
+      headers: { ...(savedToken ? { Authorization: `Bearer ${savedToken}` } : {}), ...(companySlug ? { 'X-Gridstock-Company': companySlug } : {}) },
     })
       .then(async res => {
         if (res.ok) {
@@ -328,7 +343,7 @@ export default function GridStockApp({ entryRole = 'ops' }: { entryRole?: 'ops' 
       .finally(() => {
         setBooting(false);
       });
-  }, [applyServerPayload, entryRole, TOKEN_KEY]);
+  }, [applyServerPayload, entryRole, TOKEN_KEY, companySlug]);
 
   useEffect(() => {
     const onKeyDown = (ev: KeyboardEvent) => {
@@ -428,12 +443,12 @@ export default function GridStockApp({ entryRole = 'ops' }: { entryRole?: 'ops' 
       if (view === 'ops') openProductModal();
       return;
     }
-    if (kind !== 'entry' && !state.technicians.length) {
+    if (!['entry', 'stockout'].includes(kind) && !state.technicians.length) {
       showToast('Cadastre pelo menos um técnico para movimentar peças de campo.');
       if (view === 'ops') openTechModal();
       return;
     }
-    if (['withdraw', 'return', 'entry'].includes(kind) && !state.warehouses.length) {
+    if (['withdraw', 'return', 'entry', 'stockout'].includes(kind) && !state.warehouses.length) {
       showToast('Cadastre pelo menos um estoque antes de realizar esta operação.');
       if (view === 'ops') openWarehouseModal();
       return;
@@ -493,6 +508,7 @@ export default function GridStockApp({ entryRole = 'ops' }: { entryRole?: 'ops' 
   };
 
   const openTransferModal = (from = '', to = '', pid = '') => {
+    if (!companyConfig.transfers) { showToast('Transferências desabilitadas para esta empresa.'); return; }
     if (state.warehouses.length < 2) {
       showToast('Cadastre pelo menos 2 estoques para realizar transferências entre bases.');
       openWarehouseModal();
@@ -635,7 +651,7 @@ export default function GridStockApp({ entryRole = 'ops' }: { entryRole?: 'ops' 
         <aside className="login-aside">
           <div className="brand">
             <img className="brand-mark" src="/gridstock-mark.svg" width={40} height={40} alt="" />
-            <span className="brand-wordmark">GRID<span>STOCK</span><i aria-hidden="true">.</i></span>
+            <span className="brand-wordmark">{company ? company.name.toUpperCase() : <>GRID<span>STOCK</span><i aria-hidden="true">.</i></>}</span>
           </div>
           <div className="login-hero">
             <span className="eyebrow" style={{ color: 'var(--lime)' }}>CARREGANDO SISTEMA</span>
@@ -654,30 +670,30 @@ export default function GridStockApp({ entryRole = 'ops' }: { entryRole?: 'ops' 
           <aside className="login-aside">
             <div className="brand">
               <img className="brand-mark" src="/gridstock-mark.svg" width={40} height={40} alt="" />
-              <span className="brand-wordmark">GRID<span>STOCK</span><i aria-hidden="true">.</i></span>
+              <span className="brand-wordmark">{company ? company.name.toUpperCase() : <>GRID<span>STOCK</span><i aria-hidden="true">.</i></>}</span>
             </div>
             <div className="login-hero">
-              <span className="eyebrow" style={{ color: 'var(--lime)' }}>OPERAÇÃO E CAMPO EM TEMPO REAL</span>
+              <span className="eyebrow" style={{ color: 'var(--lime)' }}>{companyConfig.fieldService ? 'OPERAÇÃO E CAMPO EM TEMPO REAL' : 'ESTOQUE ORGANIZADO, OPERAÇÃO CONECTADA'}</span>
               <h1>Cada peça no lugar.<br /><span>Sua operação<br />em movimento.</span></h1>
               <p>
-                Conecte seus estoques à equipe em campo e acompanhe cada peça, da base ao atendimento.
+                {company?.tagline || (companyConfig.fieldService ? 'Conecte seus estoques à equipe em campo e acompanhe cada peça, da base ao atendimento.' : 'Acompanhe produtos, entradas, saídas e reposição em um só lugar.')}
               </p>
-              <div className="login-flow" aria-label="Fluxo de estoque da base ao atendimento">
+              {companyConfig.fieldService && <div className="login-flow" aria-label="Fluxo de estoque da base ao atendimento">
                 <div><span className="flow-icon"><Icon name="box" /></span><strong>Na base</strong><small>Estoque organizado</small></div>
                 <Icon name="arrow" />
                 <div><span className="flow-icon"><Icon name="van" /></span><strong>Em campo</strong><small>Equipe conectada</small></div>
                 <Icon name="arrow" />
                 <div><span className="flow-icon"><Icon name="check" /></span><strong>No destino</strong><small>Uso registrado</small></div>
-              </div>
+              </div>}
             </div>
             <div className="small" style={{ color: '#8da396' }}>GRIDSTOCK · Sistema de Gestão de Estoque em Movimento</div>
           </aside>
           <main className="login-main">
             <form className="login-card" onSubmit={handleLogin}>
               <div className="login-entry-icon"><Icon name={entryRole === 'tech' ? 'van' : 'grid'} /></div>
-              <span className="page-eyebrow">BEM-VINDO AO GRIDSTOCK</span>
+              <span className="page-eyebrow">{company ? `BEM-VINDO À ${company.name.toUpperCase()}` : 'BEM-VINDO AO GRIDSTOCK'}</span>
               <h2>{entryRole === 'tech' ? 'Área do técnico' : 'Controle operacional'}</h2>
-              <p>{entryRole === 'tech' ? 'Entre para informar seu estoque pessoal e as peças que levará hoje.' : 'Entre para acompanhar os estoques e a equipe em campo.'}</p>
+              <p>{entryRole === 'tech' ? 'Entre para informar seu estoque pessoal e as peças que levará hoje.' : (companyConfig.fieldService ? 'Entre para acompanhar os estoques e a equipe em campo.' : 'Entre para gerenciar os produtos e estoques da sua empresa.')}</p>
               {loginError && <div className="error" role="alert">{loginError}</div>}
               <div className="field">
                 <label htmlFor="login-user">Usuário</label>
@@ -711,11 +727,12 @@ export default function GridStockApp({ entryRole = 'ops' }: { entryRole?: 'ops' 
                 {loginLoading ? 'Autenticando...' : 'Entrar no sistema'}
               </button>
               <div className="login-hint">
-                {entryRole === 'tech' ? 'Use o usuário e a senha fornecidos pelo operacional.' : 'Cadastre a equipe e acompanhe as movimentações de cada técnico.'}
+                {entryRole === 'tech' ? 'Use o usuário e a senha fornecidos pelo operacional.' : (companyConfig.fieldService ? 'Cadastre a equipe e acompanhe as movimentações de cada técnico.' : 'Acesso exclusivo aos dados da sua empresa.')}
                 <br />
-                <a className="text-link" href={entryRole === 'tech' ? '/' : '/tecnico'}>
+                <a className="text-link" hidden={!companyConfig.fieldService} href={entryRole === 'tech' ? (companyBase || '/') : `${companyBase}/tecnico`}>
                   {entryRole === 'tech' ? 'Acesso do operacional' : 'Acesso exclusivo do técnico'}
                 </a>
+                {!company && <><br /><a className="text-link" href="/administracao">Administrar empresas</a></>}
               </div>
             </form>
           </main>
@@ -724,6 +741,8 @@ export default function GridStockApp({ entryRole = 'ops' }: { entryRole?: 'ops' 
       </>
     );
   }
+
+  if (!companyConfig.fieldService && currentUser.role === 'ops') return <StockWorkspace state={state} users={users} user={currentUser} name={company?.name || 'GRIDSTOCK'} config={companyConfig} api={apiCall} update={applyServerPayload} logout={handleLogout} />;
 
   const isOpsUser = currentUser.role === 'ops';
   const ops = view === 'ops' && isOpsUser;
@@ -755,7 +774,7 @@ export default function GridStockApp({ entryRole = 'ops' }: { entryRole?: 'ops' 
     : currentTech?.initials || 'TC';
   const userName = ops ? currentUser.name : currentTech?.name || currentUser.name;
   const userRoleLabel = ops
-    ? 'Controle operacional'
+    ? (company ? 'Administrador da empresa' : 'Controle operacional')
     : currentTech?.vehicle
     ? `Técnico · ${currentTech.vehicle}`
     : 'Técnico em campo';
@@ -1029,9 +1048,9 @@ export default function GridStockApp({ entryRole = 'ops' }: { entryRole?: 'ops' 
         <div className="setup-head">
           <div>
             <h2>Configuração da Operação</h2>
-            <p>Cadastre os dados reais da sua operação abaixo ou carregue uma base de demonstração para explorar.</p>
+            <p>Cadastre os estoques, produtos e a equipe da sua operação abaixo.</p>
           </div>
-          <button className="button secondary" onClick={() => setModal({ type: 'reset', mode: 'seed' })}>
+          <button hidden={!!company} className="button secondary" onClick={() => setModal({ type: 'reset', mode: 'seed' })}>
             <Icon name="box" />Carregar base de exemplo
           </button>
         </div>
@@ -1272,7 +1291,7 @@ export default function GridStockApp({ entryRole = 'ops' }: { entryRole?: 'ops' 
                 <button className="button secondary" onClick={() => openMovementModal('entry')}>
                   <Icon name="in" />Entrada de estoque
                 </button>
-                <button className="button secondary" onClick={() => openTransferModal()}>
+                <button hidden={!companyConfig.transfers} className="button secondary" onClick={() => openTransferModal()}>
                   <Icon name="arrows" />Transferir peças
                 </button>
                 <button className="button" onClick={() => openProductModal()}>
@@ -1476,7 +1495,7 @@ export default function GridStockApp({ entryRole = 'ops' }: { entryRole?: 'ops' 
           <p>Uma rede conectada. Cada base com seu próprio saldo e endereçamento.</p>
         </div>
         <div className="heading-actions">
-          <button className="button secondary" onClick={() => openTransferModal()}>
+          <button hidden={!companyConfig.transfers} className="button secondary" onClick={() => openTransferModal()}>
             <Icon name="arrows" />Transferir peças
           </button>
           <button className="button" onClick={() => openWarehouseModal()}>
@@ -1565,7 +1584,7 @@ export default function GridStockApp({ entryRole = 'ops' }: { entryRole?: 'ops' 
                 </button>
                 <button
                   className="icon-button"
-                  onClick={() => openTransferModal(w.id)}
+                  hidden={!companyConfig.transfers} onClick={() => openTransferModal(w.id)}
                   title={`Transferir de ${w.name}`}
                   aria-label={`Transferir de ${w.name}`}
                 >
@@ -2174,6 +2193,7 @@ export default function GridStockApp({ entryRole = 'ops' }: { entryRole?: 'ops' 
         use: ['Registrar utilização', 'Vincule a peça ao atendimento e ao local onde foi aplicada.', 'Confirmar utilização'],
         count: ['Informar estoque pessoal', 'Informe o total que você já possui de cada peça do catálogo e a origem ou justificativa.', 'Salvar estoque pessoal'],
         departure: ['Registrar saída do dia', 'Informe quantas unidades do seu estoque levará hoje. O registro mantém o saldo e fica visível ao operacional. Para corrigir, registre novamente o total da peça.', 'Registrar saída'],
+        stockout: ['Saída de estoque', 'Registre uma baixa por venda, consumo ou perda.', 'Confirmar saída'],
         entry: ['Entrada de estoque', 'Adicione novas unidades compradas ou recebidas diretamente em uma base.', 'Confirmar entrada'],
       };
       const [title, sub, submitLabel] = labels[kind] || labels.withdraw;
@@ -2183,7 +2203,7 @@ export default function GridStockApp({ entryRole = 'ops' }: { entryRole?: 'ops' 
         ['return', 'Devolução'],
         ['count', 'Estoque pessoal'],
         ['departure', 'Saída do dia'],
-        ...(ops ? ([['entry', 'Entrada'], ['transfer', 'Transferir']] as [MovementKind, string][]) : []),
+        ...(ops ? ([['entry', 'Entrada'], ...(companyConfig.stockOut ? [['stockout', 'Saída de estoque']] : []), ...(companyConfig.transfers ? [['transfer', 'Transferir']] : [])] as [MovementKind, string][]) : []),
       ];
 
       const selTech = techById(moveTechId);
@@ -2250,7 +2270,7 @@ export default function GridStockApp({ entryRole = 'ops' }: { entryRole?: 'ops' 
                   ))}
                 </div>
                 {formError && <div className="error" role="alert">{formError}</div>}
-                {kind !== 'entry' && (
+                {!['entry', 'stockout'].includes(kind) && (
                   ops ? (
                     <div className="field">
                       <label htmlFor="move-tech">Técnico responsável</label>
@@ -2301,10 +2321,10 @@ export default function GridStockApp({ entryRole = 'ops' }: { entryRole?: 'ops' 
                     ))}
                   </select>
                 </div>
-                {['withdraw', 'return', 'entry'].includes(kind) && (
+                {['withdraw', 'return', 'entry', 'stockout'].includes(kind) && (
                   <div className="field">
                     <label htmlFor="move-warehouse">
-                      {kind === 'withdraw' ? 'Estoque de origem' : kind === 'entry' ? 'Estoque de destino' : 'Estoque de devolução'}
+                      {['withdraw', 'stockout'].includes(kind) ? 'Estoque de origem' : kind === 'entry' ? 'Estoque de destino' : 'Estoque de devolução'}
                     </label>
                     <select
                       id="move-warehouse"
@@ -2347,13 +2367,13 @@ export default function GridStockApp({ entryRole = 'ops' }: { entryRole?: 'ops' 
                   </div>
                 )}
                 <div className="balance-preview">
-                  {kind === 'entry' ? (
+                  {['entry', 'stockout'].includes(kind) ? (
                     <>
                       <span>Saldo atual na base: <strong>{baseQty} un.</strong></span>
                       <span>
-                        Após entrada:{' '}
+                        Após movimentação:{' '}
                         <strong>
-                          {!Number.isSafeInteger(moveQty) || moveQty < 1 ? 'Quantidade inválida' : `${baseQty + moveQty} un.`}
+                          {!Number.isSafeInteger(moveQty) || moveQty < 1 ? 'Quantidade inválida' : `${kind === 'stockout' ? baseQty - moveQty : baseQty + moveQty} un.`}
                         </strong>
                       </span>
                     </>
@@ -3460,7 +3480,7 @@ export default function GridStockApp({ entryRole = 'ops' }: { entryRole?: 'ops' 
                 )}
                 <button type="submit" className="button"><Icon name="plus" />Salvar usuário</button>
               </form>
-              <div className="form-section-label"><Icon name="box" />MANUTENÇÃO DO BANCO DE DADOS</div>
+              {!company && <><div className="form-section-label"><Icon name="box" />MANUTENÇÃO DO BANCO DE DADOS</div>
               <div className="guide-summary" style={{ marginBottom: 12 }}>
                 Você pode iniciar o banco de dados completamente limpo (zerado) para cadastrar apenas os dados reais da sua empresa, ou carregar o cenário de exemplo para testes.
               </div>
@@ -3479,7 +3499,8 @@ export default function GridStockApp({ entryRole = 'ops' }: { entryRole?: 'ops' 
                 >
                   <Icon name="reset" />Zerar banco de dados (iniciar limpo)
                 </button>
-              </div>
+              </div></>}
+              {company && <p className="guide-summary">Administrador da empresa: gerencie os usuários desta operação. Perfil, módulos e limites são definidos pelo administrador da plataforma.</p>}
             </div>
             <div className="modal-footer">
               <button className="button secondary" onClick={() => setModal(null)}>Fechar</button>
@@ -3558,7 +3579,7 @@ export default function GridStockApp({ entryRole = 'ops' }: { entryRole?: 'ops' 
           <button className="sidebar-close icon-button" aria-label="Fechar menu" onClick={() => setSidebarOpen(false)}><Icon name="close" /></button>
           <div className="brand">
             <img className="brand-mark" src="/gridstock-mark.svg" width={40} height={40} alt="" />
-            <span className="brand-wordmark">GRID<span>STOCK</span><i aria-hidden="true">.</i></span>
+            <span className="brand-wordmark">{company ? company.name.toUpperCase() : <>GRID<span>STOCK</span><i aria-hidden="true">.</i></>}</span>
           </div>
           <div className="workspace">
             <div className="workspace-icon"><Icon name="box" /></div>
@@ -3641,15 +3662,15 @@ export default function GridStockApp({ entryRole = 'ops' }: { entryRole?: 'ops' 
           </nav>
           <div className="sidebar-help">
             <Icon name="shield" />
-            <strong>{isOpsUser ? 'Administração e acessos' : 'Operação rastreada'}</strong>
+            <strong>{isOpsUser ? (company ? 'Administração da empresa' : 'Administração e acessos') : 'Operação rastreada'}</strong>
             <p>
               {isOpsUser
-                ? 'Gerencie usuários, logins da equipe e manutenção do banco de dados.'
+                ? (company ? 'Gerencie os usuários e logins da sua empresa.' : 'Gerencie usuários, logins da equipe e manutenção do banco de dados.')
                 : 'Registre chegadas, aplicações em OS e devoluções em tempo real.'}
             </p>
             {isOpsUser ? (
               <button onClick={() => { setFormError(''); setModal({ type: 'system' }); }}>
-                Acessos e banco de dados <Icon name="arrow" />
+                {company ? 'Usuários da empresa' : 'Acessos e banco de dados'} <Icon name="arrow" />
               </button>
             ) : (
               <button onClick={handleLogout}>
@@ -3686,7 +3707,7 @@ export default function GridStockApp({ entryRole = 'ops' }: { entryRole?: 'ops' 
               <Icon name="menu" />
             </button>
             <div className="breadcrumb">
-              <span className="breadcrumb-home"><img src="/gridstock-mark.svg" width={22} height={22} alt="" /> GRIDSTOCK</span> <Icon name="chevron" />
+              <span className="breadcrumb-home"><img src="/gridstock-mark.svg" width={22} height={22} alt="" /> {company?.name.toUpperCase() || 'GRIDSTOCK'}</span> <Icon name="chevron" />
               <strong>{pageTitle}</strong>
             </div>
             <div className="top-actions">

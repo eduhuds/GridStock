@@ -10,3 +10,6 @@ data/*.db
 data/*.db-shm
 data/*.db-wal
 next-env.d.ts
+
+# Private databases for each company
+data/companies/

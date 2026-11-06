@@ -47,6 +47,7 @@ export type MovementKind =
   | 'arrival'
   | 'finish'
   | 'transfer'
+  | 'stockout'
   | 'entry'
   | 'departure';
 
@@ -561,6 +562,18 @@ export function deleteTechnician(s: GridStockState, id: string, now = Date.now()
 
 export function apply(s: GridStockState, a: Record<string, unknown>, now = Date.now()): Movement {
   const kind = a.kind as MovementKind;
+  if (kind === 'stockout') {
+    const w = warehouse(s, a.warehouse);
+    const p = s.parts.find(x => x.id === a.part);
+    const qty = integer(a.qty);
+    const note = clean(a.note);
+    if (!p) throw new Error('Selecione um produto válido.');
+    if (!note) throw new Error('Informe o motivo da saída.');
+    const before = s.stock[w.id]?.[p.id] || 0;
+    if (qty > before) throw new Error(`O estoque possui apenas ${before} unidades disponíveis.`);
+    s.stock[w.id][p.id] = before - qty;
+    return record(s, { kind, warehouse: w.id, part: p.id, qty, before, delta: -qty, note, operator: clean(a.operator, 100) || 'Operação' }, now);
+  }
   if (kind === 'entry') {
     const w = warehouse(s, a.warehouse);
     const p = s.parts.find(x => x.id === a.part);

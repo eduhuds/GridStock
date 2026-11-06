@@ -70,3 +70,57 @@ Ambiente dedicado e otimizado para dispositivos móveis, focado na agilidade da 
 - **Aplicação:** Next.js (App Router), React 19 e TypeScript
 - **Banco de Dados e Persistência:** Supabase (PostgreSQL) com camada de alta disponibilidade
 - **Segurança:** Autenticação baseada em tokens assinados (HMAC-SHA256) e controle de acesso por perfil (RBAC)
+
+
+## Administração multiempresa
+
+Acesse `/administracao` ou o link **Administrar empresas** na página de login.
+No primeiro acesso, a conta da administração geral é criada com o login e a senha
+que o administrador principal (`u-admin`) possui no banco local naquele momento.
+Depois disso, ela é independente das contas operacionais. Altere sua senha em
+**Segurança da administração**. A sessão administrativa dura 12 horas. Para instalações
+com outro administrador principal, defina `GRIDSTOCK_MASTER_USER_ID` antes do primeiro acesso.
+
+No painel você pode cadastrar empresas, definir o primeiro responsável operacional,
+personalizar nome, cor principal e mensagem de boas-vindas, buscar empresas e pausar
+ou reativar acessos. O endereço escolhido no cadastro é permanente para preservar os links.
+Cada empresa tem duas páginas:
+
+- `/empresa/endereco-da-empresa` para a operação.
+- `/empresa/endereco-da-empresa/tecnico` para os técnicos cadastrados pelo responsável.
+
+A personalização cobre a apresentação da empresa. Mudanças de regras de negócio ou
+novos módulos continuam sendo desenvolvimento no código compartilhado.
+O ambiente original continua em `/` e `/tecnico`; seus cadastros não são transferidos
+automaticamente para as novas empresas. Novas empresas começam vazias.
+
+### Armazenamento e isolamento
+
+Esta versão usa **um SQLite independente por empresa**, no mesmo servidor do sistema,
+em `data/companies/<id-interno>.db`. Se `GRIDSTOCK_DB` apontar para outro arquivo,
+a pasta `companies` fica ao lado dele. O catálogo de empresas, a conta administrativa
+e suas sessões ficam no banco principal. Nenhuma empresa recebe o usuário padrão `admin`.
+
+As APIs resolvem a empresa pelo cabeçalho `X-Gridstock-Company` e validam a sessão
+no banco daquela empresa. O cabeçalho sozinho não concede acesso. Os tokens são aleatórios
+e revogáveis, sem recuperação de acesso pelo nome de usuário. Cada empresa e perfil
+possui uma chave de sessão distinta no navegador. Pausar uma empresa bloqueia as APIs
+e encerra suas sessões; reativá-la exige novo login.
+
+**Hospedagem:** requer Node.js com SQLite e disco persistente, em uma única instância.
+Para backup, pare o serviço e copie o banco principal e toda a pasta `companies`, ou use
+backups SQLite consistentes incluindo os respectivos arquivos WAL. Não copie apenas
+`gridstock.db`, pois os estoques dos clientes ficam em arquivos separados.
+
+A sincronização Supabase anterior continua restrita ao ambiente original. Os bancos das
+novas empresas e a administração geral **não são sincronizados com o Supabase**. O cadastro
+multiempresa é bloqueado em Vercel, cujo disco é temporário. Para publicar em Vercel ou escalar
+em múltiplas instâncias, será necessária uma migração para armazenamento central com
+isolamento por empresa. As permissões públicas do esquema Supabase legado também precisam
+ser revisadas antes de exposição externa.
+
+### Verificação
+
+`npm test` inclui testes de isolamento entre empresas, usuários com o mesmo login,
+persistência após reabrir o banco, suspensão/reativação, logout, acesso administrativo,
+troca de senha e validação de cadastros. Os testes usam bancos temporários.

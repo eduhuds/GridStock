@@ -34,8 +34,6 @@ interface UserRow {
   created_at: number;
 }
 
-const TOKEN_SECRET = process.env.GRIDSTOCK_SECRET || 'gridstock-production-hmac-secret-2026';
-
 export function hashPassword(password: string): string {
   const salt = crypto.randomBytes(16).toString('hex');
   const hash = crypto.scryptSync(String(password), salt, 64).toString('hex');
@@ -49,27 +47,6 @@ export function verifyPassword(password: string, stored: string): boolean {
   const expected = Buffer.from(hash, 'hex');
   if (candidate.length !== expected.length) return false;
   return crypto.timingSafeEqual(candidate, expected);
-}
-
-function signStatelessToken(user: UserAccount, expiresAt: number): string {
-  const payload = Buffer.from(JSON.stringify({ u: user.id, username: user.username, exp: expiresAt })).toString('base64url');
-  const sig = crypto.createHmac('sha256', TOKEN_SECRET).update(payload).digest('base64url');
-  return `${payload}.${sig}`;
-}
-
-function verifyStatelessToken(token: string): { u: string; username: string; exp: number } | null {
-  if (!token || !token.includes('.')) return null;
-  const [payload, sig] = token.split('.');
-  if (!payload || !sig) return null;
-  const expectedSig = crypto.createHmac('sha256', TOKEN_SECRET).update(payload).digest('base64url');
-  if (sig !== expectedSig) return null;
-  try {
-    const parsed = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
-    if (parsed.exp && parsed.exp < Date.now()) return null;
-    return parsed;
-  } catch {
-    return null;
-  }
 }
 
 function cleanUser(row?: UserRow | null): UserAccount | null {
@@ -97,6 +74,12 @@ export function getDb(): DatabaseSync {
   if (resolved !== ':memory:') {
     fs.mkdirSync(path.dirname(resolved), { recursive: true });
   }
+  const db = createDatabase(resolved);
+  globalForDb.__gridstockDb = db;
+  return db;
+}
+
+export function createDatabase(resolved: string, createAdmin = true): DatabaseSync {
   const db = new DatabaseSync(resolved);
   db.exec(`
     PRAGMA journal_mode = WAL;
@@ -198,7 +181,7 @@ export function getDb(): DatabaseSync {
   `);
 
   const countRow = db.prepare('SELECT COUNT(*) AS cnt FROM users').get() as { cnt: number };
-  if (countRow.cnt === 0) {
+  if (createAdmin && countRow.cnt === 0) {
     const now = Date.now();
     db.prepare(`
       INSERT INTO users (id, username, name, password_hash, role, technician_id, created_at)
@@ -208,11 +191,10 @@ export function getDb(): DatabaseSync {
 
   const metaVersion = db.prepare('SELECT value FROM app_meta WHERE key = ?').get('version');
   if (!metaVersion) {
-    const initial = process.env.GRIDSTOCK_INITIAL_MODE === 'seed' ? seed() : emptyState();
+    const initial = createAdmin && process.env.GRIDSTOCK_INITIAL_MODE === 'seed' ? seed() : emptyState();
     saveState(db, initial);
   }
 
-  globalForDb.__gridstockDb = db;
   return db;
 }
 
@@ -449,7 +431,7 @@ export function authenticate(username: unknown, password: unknown, db = getDb())
   const user = cleanUser(row)!;
   const now = Date.now();
   const expiresAt = now + 30 * 24 * 60 * 60 * 1000;
-  const token = signStatelessToken(user, expiresAt);
+  const token = crypto.randomBytes(32).toString('base64url');
   db.prepare('INSERT OR REPLACE INTO sessions (token, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)').run(
     token,
     row.id,
@@ -473,14 +455,6 @@ export function getUserFromRequest(req: Request, db = getDb()): UserAccount | nu
       return null;
     }
     const userRow = db.prepare('SELECT * FROM users WHERE id = ?').get(session.user_id) as UserRow | undefined;
-    return cleanUser(userRow);
-  }
-  const stateless = verifyStatelessToken(token);
-  if (stateless) {
-    const userRow = db.prepare('SELECT * FROM users WHERE id = ? OR LOWER(username) = ?').get(
-      stateless.u,
-      stateless.username
-    ) as UserRow | undefined;
     return cleanUser(userRow);
   }
   return null;
@@ -593,6 +567,7 @@ export function syncTechnicianUser(
 export function deleteUser(id: string, activeUserId: string, db = getDb()): boolean {
   const existing = db.prepare('SELECT * FROM users WHERE id = ?').get(String(id)) as UserRow | undefined;
   if (!existing) throw new Error('Usuário não encontrado.');
+  if (db === getDb() && existing.id === (process.env.GRIDSTOCK_MASTER_USER_ID || 'u-admin')) throw new Error('A conta do administrador geral é protegida.');
   if (existing.id === activeUserId) {
     throw new Error('Você não pode excluir o seu próprio usuário em uso.');
   }

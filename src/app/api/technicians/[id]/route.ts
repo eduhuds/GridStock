@@ -1,5 +1,6 @@
+import { databaseForRequest, enforceCompanyAction } from '@/lib/companies';
 import { NextResponse } from 'next/server';
-import { getDb, getUserFromRequest, listUsers, loadState, saveState } from '@/lib/db';
+import { getUserFromRequest, listUsers, loadState, saveState } from '@/lib/db';
 import { deleteTechnician } from '@/lib/domain';
 import { ensureSupabaseSynced, pushAllToSupabase } from '@/lib/supabaseStore';
 
@@ -7,7 +8,8 @@ export const dynamic = 'force-dynamic';
 
 export async function DELETE(req: Request, context: { params: Promise<{ id: string }> }) {
   try {
-    const db = getDb();
+    enforceCompanyAction(req, 'technicians');
+    const db = databaseForRequest(req);
     await ensureSupabaseSynced(db);
     const user = getUserFromRequest(req, db);
     if (!user) return NextResponse.json({ error: 'Não autenticado.' }, { status: 401 });

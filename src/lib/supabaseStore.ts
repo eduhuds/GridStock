@@ -1,3 +1,4 @@
+import { isCompanyDatabase } from './companies';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import type { DatabaseSync } from 'node:sqlite';
 
@@ -37,6 +38,7 @@ export function getSupabaseAdminClient(): SupabaseClient | null {
  * Safe no-op if Supabase is not configured or schema.sql has not been applied yet.
  */
 export async function pushAllToSupabase(db: DatabaseSync): Promise<boolean> {
+  if (isCompanyDatabase(db)) return false;
   const sb = getSupabaseAdminClient();
   if (!sb) return false;
 
@@ -124,6 +126,7 @@ export async function pushAllToSupabase(db: DatabaseSync): Promise<boolean> {
  * or push local seed/empty state to Supabase if Supabase tables are newly created and empty.
  */
 export async function ensureSupabaseSynced(db: DatabaseSync, forcePull = false): Promise<void> {
+  if (isCompanyDatabase(db)) return;
   if (initialSyncDone && !forcePull) return;
   const sb = getSupabaseAdminClient();
   if (!sb) return;
