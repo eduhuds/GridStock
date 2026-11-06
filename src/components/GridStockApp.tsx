@@ -189,6 +189,7 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
 
   // System user form state
   const [sysRole, setSysRole] = useState<'ops' | 'tech'>('ops');
+  const [confirmDeleteUser, setConfirmDeleteUser] = useState<UserAccount | null>(null);
 
   // Geolocation state for technician part usage
   const [geoStatus, setGeoStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
@@ -274,11 +275,16 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
         localStorage.setItem(TOKEN_KEY, data.token);
       }
       if (data.user) {
-        setCurrentUser(data.user);
-        if (data.user.role === 'tech') {
-          setView('tech');
-          if (data.user.technicianId) setTechId(data.user.technicianId);
-        }
+        setCurrentUser(prev => {
+          if (!prev || data.token || prev.id === data.user!.id) {
+            if (data.user!.role === 'tech') {
+              setView('tech');
+              if (data.user!.technicianId) setTechId(data.user!.technicianId);
+            }
+            return data.user!;
+          }
+          return prev;
+        });
       }
       if (data.state) {
         setState(data.state);
@@ -3413,6 +3419,61 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
             </div>
             <div className="modal-body">
               {formError && <div className="error" role="alert">{formError}</div>}
+              {confirmDeleteUser && (
+                <div
+                  role="alertdialog"
+                  aria-labelledby="confirm-del-user-title"
+                  style={{
+                    background: '#fff5f4',
+                    border: '1px solid #f2b8b5',
+                    borderRadius: 8,
+                    padding: '14px 16px',
+                    marginBottom: 16,
+                    display: 'flex',
+                    flexWrap: 'wrap',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: 12,
+                  }}
+                >
+                  <div>
+                    <strong id="confirm-del-user-title" style={{ color: '#8c1d18', display: 'block', marginBottom: 2 }}>
+                      Tem certeza de que deseja remover este usuário?
+                    </strong>
+                    <span className="small" style={{ color: '#5f2120' }}>
+                      O acesso de <strong>{confirmDeleteUser.name}</strong> (<code>@{confirmDeleteUser.username}</code>) será revogado imediatamente.
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button
+                      type="button"
+                      className="button secondary"
+                      onClick={() => setConfirmDeleteUser(null)}
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      type="button"
+                      className="button danger"
+                      onClick={async () => {
+                        const target = confirmDeleteUser;
+                        setConfirmDeleteUser(null);
+                        setFormError('');
+                        try {
+                          const res = await apiCall('DELETE', `/api/users/${encodeURIComponent(target.id)}`);
+                          applyServerPayload({ users: res.users });
+                          showToast('Usuário removido.');
+                        } catch (err) {
+                          setFormError(err instanceof Error ? err.message : 'Erro ao remover usuário.');
+                        }
+                      }}
+                    >
+                      <Icon name="trash" />
+                      Sim, remover
+                    </button>
+                  </div>
+                </div>
+              )}
               <h3 style={{ marginBottom: 10 }}>Usuários com acesso ao sistema</h3>
               <div className="table-wrap" style={{ border: '1px solid var(--line)', borderRadius: 8, marginBottom: 20 }}>
                 <table>
@@ -3436,15 +3497,9 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
                             <button
                               type="button"
                               className="text-link danger"
-                              onClick={async () => {
+                              onClick={() => {
                                 setFormError('');
-                                try {
-                                  const res = await apiCall('DELETE', `/api/users/${encodeURIComponent(u.id)}`);
-                                  applyServerPayload(res);
-                                  showToast('Usuário removido.');
-                                } catch (err) {
-                                  setFormError(err instanceof Error ? err.message : 'Erro ao remover usuário.');
-                                }
+                                setConfirmDeleteUser(u);
                               }}
                             >
                               Remover
@@ -3467,7 +3522,7 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
                   const fd = Object.fromEntries(new FormData(formEl));
                   try {
                     const res = await apiCall('POST', '/api/users', fd);
-                    applyServerPayload(res);
+                    applyServerPayload({ users: res.users });
                     formEl.reset();
                     setSysRole('ops');
                     showToast('Usuário salvo com sucesso.');
@@ -3706,7 +3761,7 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
                 : 'Registre chegadas, aplicações em OS e devoluções em tempo real.'}
             </p>
             {isOpsUser ? (
-              <button onClick={() => { setFormError(''); setModal({ type: 'system' }); }}>
+              <button onClick={() => { setFormError(''); setConfirmDeleteUser(null); setModal({ type: 'system' }); }}>
                 {company ? 'Usuários da empresa' : 'Acessos e banco de dados'} <Icon name="arrow" />
               </button>
             ) : (
@@ -3792,7 +3847,7 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
               {isOpsUser && (
                 <button
                   className="icon-button"
-                  onClick={() => { setFormError(''); setModal({ type: 'system' }); }}
+                  onClick={() => { setFormError(''); setConfirmDeleteUser(null); setModal({ type: 'system' }); }}
                   title="Acessos e banco de dados"
                   aria-label="Configurações do sistema"
                 >

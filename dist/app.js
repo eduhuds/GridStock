@@ -658,7 +658,7 @@ function systemModal(){
   try{
    const fd=Object.fromEntries(new FormData(ev.currentTarget));
    const res=await apiRequest('POST','/api/users',fd);
-   applySession(res);systemModal();toast('Usuário salvo com sucesso.');
+   applySession({users:res.users});systemModal();toast('Usuário salvo com sucesso.');
   }catch(err){document.getElementById('sys-error').textContent=err.message}
  };
  document.getElementById('btn-seed-data').onclick=()=>confirmDatabaseReset('seed');
