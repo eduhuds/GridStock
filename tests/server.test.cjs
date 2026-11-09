@@ -99,13 +99,13 @@ test('API inicia com banco limpo, exige autenticação e permite fluxo real comp
       client: 'Hospital São José',
       address: 'Rua Principal, 100',
       username: 'marcos',
-      password: 'tech123'
+      password: 'tech12345'
     }, adminToken);
     assert.equal(techRes.status, 200);
     const tid = techRes.data.technician.id;
 
     // 7. Fazer login como o técnico Marcos
-    const techLogin = await req('POST', '/api/auth/login', { username: 'marcos', password: 'tech123' });
+    const techLogin = await req('POST', '/api/auth/login', { username: 'marcos', password: 'tech12345' });
     assert.equal(techLogin.status, 200);
     const techToken = techLogin.data.token;
     assert.equal(techLogin.data.user.role, 'tech');

@@ -118,34 +118,13 @@ ALTER TABLE public.product_locations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.stock_balances ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.movements ENABLE ROW LEVEL SECURITY;
 
--- Permissões para a Data API do Supabase (usada pelas rotas de API do Next.js)
-GRANT ALL ON public.users TO anon, authenticated, service_role;
-GRANT ALL ON public.sessions TO anon, authenticated, service_role;
-GRANT ALL ON public.app_meta TO anon, authenticated, service_role;
-GRANT ALL ON public.warehouses TO anon, authenticated, service_role;
-GRANT ALL ON public.products TO anon, authenticated, service_role;
-GRANT ALL ON public.technicians TO anon, authenticated, service_role;
-GRANT ALL ON public.product_locations TO anon, authenticated, service_role;
-GRANT ALL ON public.stock_balances TO anon, authenticated, service_role;
-GRANT ALL ON public.movements TO anon, authenticated, service_role;
-
--- Políticas de acesso para o backend Next.js do GridStock
+-- Dados acessados exclusivamente pelo servidor com chave secreta.
 DO $$
-DECLARE
-  t TEXT;
+DECLARE t TEXT;
 BEGIN
-  FOREACH t IN ARRAY ARRAY[
-    'users', 'sessions', 'app_meta', 'warehouses',
-    'products', 'technicians', 'product_locations',
-    'stock_balances', 'movements'
-  ]
-  LOOP
-    EXECUTE format('DROP POLICY IF EXISTS "gridstock_api_access_%s" ON public.%I', t, t);
-    EXECUTE format(
-      'CREATE POLICY "gridstock_api_access_%s" ON public.%I FOR ALL TO anon, authenticated, service_role USING (true) WITH CHECK (true)',
-      t, t
-    );
+  FOREACH t IN ARRAY ARRAY['users','sessions','app_meta','warehouses','products','technicians','product_locations','stock_balances','movements'] LOOP
+    EXECUTE format('REVOKE ALL ON TABLE public.%I FROM PUBLIC, anon, authenticated', t);
+    EXECUTE format('GRANT ALL ON TABLE public.%I TO service_role', t);
+    EXECUTE format('DROP POLICY IF EXISTS %I ON public.%I', 'gridstock_api_access_' || t, t);
   END LOOP;
-END
-$$;
-
+END $$;

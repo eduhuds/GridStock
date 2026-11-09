@@ -67,6 +67,7 @@ function extractToken(req) {
 }
 
 function createApp({ dbPath } = {}) {
+  if (dbPath !== ':memory:') throw new Error('Servidor legado disponível apenas para testes em memória.');
   const db = createDatabase(dbPath);
 
   const server = http.createServer(async (req, res) => {
@@ -218,7 +219,7 @@ function createApp({ dbPath } = {}) {
       // Serve static files from dist/
       const cleanPath = pathname === '/' ? '/index.html' : pathname;
       const filePath = path.resolve(DIST_DIR, '.' + cleanPath);
-      if (!filePath.startsWith(DIST_DIR)) {
+      if (!filePath.startsWith(DIST_DIR + path.sep)) {
         res.writeHead(403);
         return res.end('Forbidden');
       }
@@ -241,6 +242,7 @@ function createApp({ dbPath } = {}) {
 }
 
 if (require.main === module) {
+  throw new Error('Servidor legado desativado. Use npm run dev ou npm start para iniciar a aplicação atual.');
   const port = Number(process.env.PORT) || 8080;
   const { server } = createApp();
   server.listen(port, () => {

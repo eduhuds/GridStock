@@ -268,8 +268,8 @@ function colIndexFromRef(cellRef: string): number {
 async function inflateRaw(compressed: Uint8Array): Promise<Uint8Array> {
   const ds = new DecompressionStream('deflate-raw');
   const writer = ds.writable.getWriter();
-  writer.write(compressed as unknown as BufferSource);
-  writer.close();
+  const writing = writer.write(compressed as unknown as BufferSource).then(() => writer.close());
+  void writing.catch(() => {});
   const reader = ds.readable.getReader();
   const chunks: Uint8Array[] = [];
   let total = 0;
@@ -279,8 +279,10 @@ async function inflateRaw(compressed: Uint8Array): Promise<Uint8Array> {
     if (value) {
       chunks.push(value);
       total += value.length;
+      if (total > 10 * 1024 * 1024) { await reader.cancel(); throw new Error('Planilha descompactada excede 10 MB.'); }
     }
   }
+  await writing;
   const out = new Uint8Array(total);
   let offset = 0;
   for (const c of chunks) {
@@ -291,6 +293,7 @@ async function inflateRaw(compressed: Uint8Array): Promise<Uint8Array> {
 }
 
 export async function parseXlsxBytes(buffer: ArrayBuffer): Promise<string[][]> {
+  if (buffer.byteLength > 10 * 1024 * 1024) throw new Error('Planilha excede 10 MB.');
   const bytes = new Uint8Array(buffer);
   const view = new DataView(buffer);
   const decoder = new TextDecoder('utf-8');
@@ -308,6 +311,7 @@ export async function parseXlsxBytes(buffer: ArrayBuffer): Promise<string[][]> {
   }
 
   const totalEntries = view.getUint16(eocdPos + 10, true);
+  if (totalEntries > 500) throw new Error('Planilha contém arquivos demais.');
   let cdOffset = view.getUint32(eocdPos + 16, true);
   const entries = new Map<string, string>();
 

@@ -35,9 +35,9 @@ export function getSupabaseAdminClient(): SupabaseClient | null {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key =
     process.env.SUPABASE_SERVICE_ROLE_KEY ||
-    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  if (!url || !key) return null;
+    process.env.SUPABASE_SECRET_KEY;
+  if (!url) return null;
+  if (!key) throw new Error('Configure a chave secreta do Supabase no servidor.');
   if (!cachedClient) {
     cachedClient = createClient(url, key, {
       auth: { persistSession: false, autoRefreshToken: false },
@@ -65,10 +65,11 @@ export async function pushPlatformToSupabase(companyId?: string): Promise<boolea
         rows.push({ key: `${COMPANY_DB_PREFIX}${id}`, value: JSON.stringify(snap) });
       }
     }
-    const { error } = await sb.from('app_meta').upsert(rows, { onConflict: 'key' });
-    return !error;
+    const { error } = await sb.from('app_meta').upsert(rows, { onConflict: 'key' }).throwOnError();
+    if (error) throw error;
+    return true;
   } catch {
-    return false;
+    throw new Error('Falha ao salvar os dados remotos.');
   }
 }
 
@@ -76,9 +77,9 @@ export async function deleteCompanyFromSupabase(companyId: string): Promise<void
   const sb = getSupabaseAdminClient();
   if (!sb) return;
   try {
-    await sb.from('app_meta').delete().eq('key', `${COMPANY_DB_PREFIX}${companyId}`);
+    await sb.from('app_meta').delete().eq('key', `${COMPANY_DB_PREFIX}${companyId}`).throwOnError();
     await pushPlatformToSupabase();
-  } catch {}
+  } catch { throw new Error('Falha ao excluir os dados remotos.'); }
 }
 
 /**
@@ -92,7 +93,8 @@ export async function pullPlatformFromSupabase(): Promise<void> {
       .from('app_meta')
       .select('key, value')
       .or(`key.eq.${PLATFORM_REGISTRY_KEY},key.like.${COMPANY_DB_PREFIX}%`);
-    if (!error && data && data.length > 0) {
+    if (error) throw new Error('Falha ao consultar o banco remoto.');
+    if (data && data.length > 0) {
       const regRow = data.find(r => r.key === PLATFORM_REGISTRY_KEY);
       if (regRow?.value) {
         const parsed = JSON.parse(String(regRow.value)) as PlatformRegistrySnapshot;
@@ -110,11 +112,10 @@ export async function pullPlatformFromSupabase(): Promise<void> {
 
     const regSnap = exportPlatformRegistry();
     if (!regSnap.masterAccount) {
-      const { data: usersData } = await sb.from('users').select('*');
+      const { data: usersData } = await sb.from('users').select('*').throwOnError();
       if (usersData && usersData.length > 0) {
         const owner =
-          usersData.find(u => String(u.id) === (process.env.GRIDSTOCK_MASTER_USER_ID || 'u-admin')) ||
-          usersData.find(u => String(u.role) === 'ops');
+          usersData.find(u => String(u.id) === (process.env.GRIDSTOCK_MASTER_USER_ID || 'u-admin'));
         if (owner) {
           importPlatformRegistry({
             masterAccount: { username: owner.username, password_hash: owner.password_hash },
@@ -123,7 +124,7 @@ export async function pullPlatformFromSupabase(): Promise<void> {
       }
     }
   } catch {
-    // Ignore errors in offline or uninitialized mode
+    throw new Error('Não foi possível validar os dados remotos. Tente novamente.');
   }
 }
 
@@ -141,81 +142,90 @@ export async function pushAllToSupabase(db: DatabaseSync): Promise<boolean> {
 
   try {
     // Verify schema exists in Supabase first
-    const { error: pingErr } = await sb.from('app_meta').select('key').limit(1);
-    if (pingErr) return false;
+    const { error: pingErr } = await sb.from('app_meta').select('key').limit(1).throwOnError();
+    if (pingErr) throw pingErr;
 
     // 1. users
     const users = db.prepare('SELECT * FROM users').all() as Record<string, unknown>[];
     if (users.length > 0) {
-      await sb.from('users').upsert(users, { onConflict: 'id' });
+      await sb.from('users').upsert(users, { onConflict: 'id' }).throwOnError();
     }
-    const remoteUsers = await sb.from('users').select('id');
+    const remoteUsers = await sb.from('users').select('id').throwOnError();
     if (remoteUsers.data) {
       const localUserIds = new Set(users.map(u => String(u.id)));
       const toDelete = remoteUsers.data.map(u => String(u.id)).filter(id => !localUserIds.has(id));
       if (toDelete.length > 0) {
-        await sb.from('users').delete().in('id', toDelete);
+        await sb.from('users').delete().in('id', toDelete).throwOnError();
       }
     }
 
     // 2. sessions
     const sessions = db.prepare('SELECT * FROM sessions').all() as Record<string, unknown>[];
     if (sessions.length > 0) {
-      await sb.from('sessions').upsert(sessions, { onConflict: 'token' });
+      await sb.from('sessions').upsert(sessions, { onConflict: 'token' }).throwOnError();
+    }
+
+    const remoteSessions = await sb.from('sessions').select('token').throwOnError();
+    if (remoteSessions.error) throw remoteSessions.error;
+    const localTokens = new Set(sessions.map(s => String(s.token)));
+    const revoked = (remoteSessions.data || []).map(s => String(s.token)).filter(t => !localTokens.has(t));
+    if (revoked.length) {
+      const result = await sb.from('sessions').delete().in('token', revoked).throwOnError();
+      if (result.error) throw result.error;
     }
 
     // 3. app_meta
     const meta = db.prepare('SELECT * FROM app_meta').all() as Record<string, unknown>[];
     if (meta.length > 0) {
-      await sb.from('app_meta').upsert(meta, { onConflict: 'key' });
+      await sb.from('app_meta').upsert(meta, { onConflict: 'key' }).throwOnError();
     }
 
     // 4. warehouses
     const warehouses = db.prepare('SELECT * FROM warehouses').all() as Record<string, unknown>[];
-    await sb.from('warehouses').delete().neq('id', '__never__');
+    await sb.from('warehouses').delete().neq('id', '__never__').throwOnError();
     if (warehouses.length > 0) {
-      await sb.from('warehouses').insert(warehouses);
+      await sb.from('warehouses').insert(warehouses).throwOnError();
     }
 
     // 5. products
     const products = db.prepare('SELECT * FROM products').all() as Record<string, unknown>[];
-    await sb.from('products').delete().neq('id', '__never__');
+    await sb.from('products').delete().neq('id', '__never__').throwOnError();
     if (products.length > 0) {
-      await sb.from('products').insert(products);
+      await sb.from('products').insert(products).throwOnError();
     }
 
     // 6. technicians
     const technicians = db.prepare('SELECT * FROM technicians').all() as Record<string, unknown>[];
-    await sb.from('technicians').delete().neq('id', '__never__');
+    await sb.from('technicians').delete().neq('id', '__never__').throwOnError();
     if (technicians.length > 0) {
-      await sb.from('technicians').insert(technicians);
+      await sb.from('technicians').insert(technicians).throwOnError();
     }
 
     // 7. product_locations
     const locations = db.prepare('SELECT * FROM product_locations').all() as Record<string, unknown>[];
-    await sb.from('product_locations').delete().neq('warehouse_id', '__never__');
+    await sb.from('product_locations').delete().neq('warehouse_id', '__never__').throwOnError();
     if (locations.length > 0) {
-      await sb.from('product_locations').insert(locations);
+      await sb.from('product_locations').insert(locations).throwOnError();
     }
 
     // 8. stock_balances
     const balances = db.prepare('SELECT * FROM stock_balances').all() as Record<string, unknown>[];
-    await sb.from('stock_balances').delete().neq('location_id', '__never__');
+    await sb.from('stock_balances').delete().neq('location_id', '__never__').throwOnError();
     if (balances.length > 0) {
-      await sb.from('stock_balances').insert(balances);
+      await sb.from('stock_balances').insert(balances).throwOnError();
     }
 
     // 9. movements
     const movements = db.prepare('SELECT * FROM movements').all() as Record<string, unknown>[];
-    await sb.from('movements').delete().neq('id', '__never__');
+    await sb.from('movements').delete().neq('id', '__never__').throwOnError();
     if (movements.length > 0) {
-      await sb.from('movements').insert(movements);
+      await sb.from('movements').insert(movements).throwOnError();
     }
 
     await pushPlatformToSupabase();
     return true;
   } catch {
-    return false;
+    throw new Error('Falha ao salvar os dados remotos.');
   }
 }
 
@@ -231,13 +241,12 @@ export async function ensureSupabaseSynced(db: DatabaseSync, forcePull = false):
   if (!sb) return;
 
   try {
-    const { data: metaRows, error: metaErr } = await sb.from('app_meta').select('key, value');
+    const { data: metaRows, error: metaErr } = await sb.from('app_meta').select('key, value').throwOnError();
     if (metaErr || !metaRows) {
-      // Tables not created in Supabase yet — keep working with SQLite seamlessly
-      return;
+      throw new Error('Banco remoto indisponível.');
     }
 
-    initialSyncDone = true;
+
     const coreMetaRows = metaRows.filter(
       m => m.key !== PLATFORM_REGISTRY_KEY && !String(m.key).startsWith(COMPANY_DB_PREFIX)
     );
@@ -245,6 +254,7 @@ export async function ensureSupabaseSynced(db: DatabaseSync, forcePull = false):
     // If Supabase tables exist but are empty, push our local SQLite data up to Supabase!
     if (coreMetaRows.length === 0) {
       await pushAllToSupabase(db);
+      initialSyncDone = true;
       return;
     }
 
@@ -259,14 +269,14 @@ export async function ensureSupabaseSynced(db: DatabaseSync, forcePull = false):
       balancesRes,
       movementsRes,
     ] = await Promise.all([
-      sb.from('users').select('*'),
-      sb.from('sessions').select('*'),
-      sb.from('warehouses').select('*').order('sort_order', { ascending: true }),
-      sb.from('products').select('*').order('sort_order', { ascending: true }),
-      sb.from('technicians').select('*').order('sort_order', { ascending: true }),
-      sb.from('product_locations').select('*'),
-      sb.from('stock_balances').select('*'),
-      sb.from('movements').select('*').order('ts', { ascending: false }),
+      sb.from('users').select('*').throwOnError(),
+      sb.from('sessions').select('*').throwOnError(),
+      sb.from('warehouses').select('*').order('sort_order', { ascending: true }).throwOnError(),
+      sb.from('products').select('*').order('sort_order', { ascending: true }).throwOnError(),
+      sb.from('technicians').select('*').order('sort_order', { ascending: true }).throwOnError(),
+      sb.from('product_locations').select('*').throwOnError(),
+      sb.from('stock_balances').select('*').throwOnError(),
+      sb.from('movements').select('*').order('ts', { ascending: false }).throwOnError(),
     ]);
 
     db.exec('BEGIN IMMEDIATE');
@@ -426,12 +436,13 @@ export async function ensureSupabaseSynced(db: DatabaseSync, forcePull = false):
       }
 
       db.exec('COMMIT');
+      initialSyncDone = true;
     } catch (e) {
       db.exec('ROLLBACK');
       throw e;
     }
   } catch {
-    // Ignore network or uninitialized table errors so offline/local mode works without interruption
+    throw new Error('Não foi possível sincronizar o banco de dados.');
   }
 }
 

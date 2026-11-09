@@ -1,9 +1,10 @@
+import { secureRoute } from '@/lib/apiSecurity';
 import { platformOverview, revokeCompanySessions, resetCompanyData, deleteCompany, requireMaster, saveCompany } from '@/lib/companies';
 import { deleteCompanyFromSupabase, pullPlatformFromSupabase, pushPlatformToSupabase } from '@/lib/supabaseStore';
 
 export const dynamic = 'force-dynamic';
 
-export async function GET(req: Request) {
+async function handleGET(req: Request) {
   try {
     await pullPlatformFromSupabase();
     requireMaster(req);
@@ -17,7 +18,7 @@ export async function GET(req: Request) {
   }
 }
 
-export async function POST(req: Request) {
+async function handlePOST(req: Request) {
   await pullPlatformFromSupabase();
   try {
     requireMaster(req);
@@ -33,7 +34,7 @@ export async function POST(req: Request) {
   }
 }
 
-export async function PATCH(req: Request) {
+async function handlePATCH(req: Request) {
   await pullPlatformFromSupabase();
   try {
     requireMaster(req);
@@ -60,3 +61,7 @@ export async function PATCH(req: Request) {
     return Response.json({ error: e instanceof Error ? e.message : 'Falha na ação.' }, { status: 400 });
   }
 }
+
+export const GET = secureRoute(handleGET);
+export const POST = secureRoute(handlePOST);
+export const PATCH = secureRoute(handlePATCH);

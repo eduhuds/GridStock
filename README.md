@@ -68,8 +68,8 @@ Ambiente dedicado e otimizado para dispositivos móveis, focado na agilidade da 
 ## Stack Tecnológica
 
 - **Aplicação:** Next.js (App Router), React 19 e TypeScript
-- **Banco de Dados e Persistência:** Supabase (PostgreSQL) com camada de alta disponibilidade
-- **Segurança:** Autenticação baseada em tokens assinados (HMAC-SHA256) e controle de acesso por perfil (RBAC)
+- **Banco de Dados e Persistência:** SQLite por empresa, com sincronização opcional para Supabase (PostgreSQL)
+- **Segurança:** Sessões aleatórias revogáveis, cookies HttpOnly e controle de acesso por perfil
 
 
 ## Administração multiempresa
@@ -112,16 +112,22 @@ Para backup, pare o serviço e copie o banco principal e toda a pasta `companies
 backups SQLite consistentes incluindo os respectivos arquivos WAL. Não copie apenas
 `gridstock.db`, pois os estoques dos clientes ficam em arquivos separados.
 
-A sincronização Supabase anterior continua restrita ao ambiente original. Os bancos das
-novas empresas e a administração geral **não são sincronizados com o Supabase**. O cadastro
-multiempresa é bloqueado em Vercel, cujo disco é temporário. Para publicar em Vercel ou escalar
-em múltiplas instâncias, será necessária uma migração para armazenamento central com
-isolamento por empresa. As permissões públicas do esquema Supabase legado também precisam
-ser revisadas antes de exposição externa.
+A sincronização Supabase inclui o ambiente original, as empresas e a administração em
+snapshots privados. Configure `NEXT_PUBLIC_SUPABASE_URL` e **uma chave exclusivamente do
+servidor** (`SUPABASE_SERVICE_ROLE_KEY` ou `SUPABASE_SECRET_KEY`). Nunca use prefixo
+`NEXT_PUBLIC_` para a chave secreta e nunca a coloque no código. Reinicie o servidor depois.
+Sem a chave secreta, quando há URL configurada, as operações remotas são bloqueadas.
+O esquema em `supabase/schema.sql` revoga acesso de `anon` e `authenticated` às tabelas.
+
+O modelo de snapshots exige **um único processo Node e disco persistente**; requisições da
+API são serializadas nesse processo. Não use cluster, réplicas ou múltiplos servidores.
+As APIs bloqueiam execução na Vercel. Para hospedagem distribuída, migre os dados e sessões
+para transações centrais no PostgreSQL com isolamento por empresa. Snapshots não oferecem
+transação atômica entre bancos locais e remotos e não substituem backups consistentes.
 
 ### Verificação
 
-`npm test` inclui testes de isolamento entre empresas, usuários com o mesmo login,
+`npm test` inclui testes de isolamento entre empresas, unicidade de CPF,
 persistência após reabrir o banco, suspensão/reativação, logout, acesso administrativo,
 troca de senha e validação de cadastros. Os testes usam bancos temporários.
 
@@ -140,3 +146,40 @@ chamar **Central de Administração**. Não é necessário criar uma segunda con
 O administrador da plataforma é independente das contas operacionais das empresas.
 Alterar seu nome de usuário não altera o login de nenhum cliente. A mudança fica registrada
 no histórico. O botão **Atualizar dados** consulta novamente os indicadores e o histórico.
+
+
+### Login por CPF
+
+Os acessos da plataforma, da operação e dos técnicos utilizam **CPF e senha**.
+São aceitos CPF com ou sem pontuação; os dígitos verificadores são validados.
+Novos cadastros e alterações verificam se o CPF já está registrado em outra empresa,
+incluindo empresas pausadas. O login geral identifica uma única empresa e não apresenta
+um seletor de empresas. Novas senhas de usuários exigem pelo menos oito caracteres.
+
+**Contas anteriores:** na página de login, selecione “Primeiro acesso por CPF? Converter
+conta antiga”. Informe seu login antigo, a senha atual e seu CPF verdadeiro. Para contas
+operacionais e técnicas, faça isso no endereço da respectiva empresa. O administrador
+da plataforma utiliza a mesma opção em `/administracao`. A conversão preserva senha,
+perfil, vínculo e histórico. Nenhum CPF é inventado ou atribuído automaticamente.
+
+A aplicação mantém o identificador na coluna interna `username` para compatibilidade
+com os snapshots existentes; após a conversão, essa coluna contém os 11 dígitos do CPF.
+As credenciais antigas são aceitas somente no fluxo de conversão, sem entregar uma
+sessão operacional. O CPF identifica o cadastro, mas não comprova a identidade civil.
+A validação de unicidade é feita no servidor sobre os bancos carregados da plataforma;
+a sincronização atual por snapshots não substitui uma restrição transacional global
+para implantações com múltiplas instâncias concorrentes.
+
+### Segurança revisada em 09/11/2026
+
+- Sessões de 12 horas em cookies HttpOnly/SameSite=Strict, Secure em HTTPS. O navegador
+  guarda apenas o marcador não secreto `cookie`; login antigo exige nova autenticação.
+- Dez tentativas por identidade a cada 15 minutos, mais limite global de 120/minuto,
+  persistidos em SQLite. Proteja também a borda com HTTPS e limitação de tráfego.
+- Requisições de outras origens bloqueadas, corpo JSON até 1 MB, respostas sem cache.
+- Alterações de senha, CPF, perfil ou vínculo revogam sessões do usuário. Alteração de
+  credenciais da plataforma revoga as outras sessões administrativas.
+- Senhas novas exigem 8 caracteres (10 na alteração do administrador geral), máximo 256.
+- Servidor antigo `server/index.js` desativado para operação; resta apenas para testes.
+
+Consulte `SECURITY_REVIEW.md` para evidências e limitações desta revisão.

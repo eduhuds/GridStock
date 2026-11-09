@@ -1,4 +1,4 @@
-import { requireCpf, isValidCpf, normalizeCpf, normalizeLogin } from './cpf';
+import { requireCpf, isValidCpf, normalizeCpf } from './cpf';
 import { assertCpfAvailable, companyIdForDatabase } from './companies';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -42,12 +42,14 @@ interface UserRow {
 }
 
 export function hashPassword(password: string): string {
+  if (String(password).length > 256) throw new Error('A senha deve ter no máximo 256 caracteres.');
   const salt = crypto.randomBytes(16).toString('hex');
   const hash = crypto.scryptSync(String(password), salt, 64).toString('hex');
   return `${salt}:${hash}`;
 }
 
 export function verifyPassword(password: string, stored: string): boolean {
+  if (String(password).length > 256) return false;
   if (!stored || !stored.includes(':')) return false;
   const [salt, hash] = stored.split(':');
   const candidate = crypto.scryptSync(String(password), salt, 64);
@@ -432,7 +434,7 @@ export function saveState(db: DatabaseSync, s: GridStockState): void {
 }
 
 export function authenticate(username: unknown, password: unknown, db = getDb(), legacyConversion = false): { token: string; user: UserAccount } {
-  const u = legacyConversion ? String(username ?? '').trim().toLowerCase() : normalizeLogin(username);
+  const u = legacyConversion ? String(username ?? '').trim().toLowerCase() : requireCpf(username);
   const p = String(password ?? '');
   if (!u || !p) throw new Error('Informe usuário e senha.');
   const row = db.prepare('SELECT * FROM users WHERE LOWER(username) = ?').get(u) as UserRow | undefined;
@@ -441,7 +443,7 @@ export function authenticate(username: unknown, password: unknown, db = getDb(),
   }
   const user = cleanUser(row)!;
   const now = Date.now();
-  const expiresAt = now + 30 * 24 * 60 * 60 * 1000;
+  const expiresAt = now + 12 * 60 * 60 * 1000;
   const token = crypto.randomBytes(32).toString('base64url');
   db.prepare('INSERT OR REPLACE INTO sessions (token, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)').run(
     token,
@@ -490,9 +492,10 @@ export function saveUser(payload: Record<string, unknown>, db = getDb()): UserAc
     : undefined;
   if (editing && !existing) throw new Error('Usuário não encontrado.');
 
-  const username = normalizeLogin(payload.cpf ?? payload.username);
+  const username = requireCpf(payload.cpf ?? payload.username);
   const name = String(payload.name ?? '').trim().slice(0, 80);
-  const role: 'ops' | 'tech' = payload.role === 'tech' ? 'tech' : 'ops';
+  if (payload.role !== 'ops' && payload.role !== 'tech') throw new Error('Perfil de acesso inválido.');
+  const role: 'ops' | 'tech' = payload.role;
   const technicianId = role === 'tech' ? String(payload.technicianId ?? '').trim() || null : null;
   const password = String(payload.password ?? '').trim();
 
@@ -508,18 +511,20 @@ export function saveUser(payload: Record<string, unknown>, db = getDb()): UserAc
   if (dup) throw new Error('Este CPF ou login já possui um cadastro.');
 
   if (editing && existing) {
+    if (existing.role === 'ops' && role !== 'ops' && (db.prepare("SELECT COUNT(*) AS n FROM users WHERE role='ops'").get() as {n:number}).n <= 1) throw new Error('Mantenha pelo menos um administrador da empresa.');
     const nextHash = password ? hashPassword(password) : existing.password_hash;
-    if (password && password.length < 4) throw new Error('A senha deve ter pelo menos 4 caracteres.');
+    if (password && password.length < 8) throw new Error('A senha deve ter pelo menos 8 caracteres.');
     db.prepare(`
       UPDATE users SET username = ?, name = ?, password_hash = ?, role = ?, technician_id = ?
       WHERE id = ?
     `).run(username, name, nextHash, role, technicianId, existing.id);
+    if (password || username !== existing.username || role !== existing.role || technicianId !== existing.technician_id) db.prepare('DELETE FROM sessions WHERE user_id = ?').run(existing.id);
     const updatedRow = db.prepare('SELECT * FROM users WHERE id = ?').get(existing.id) as unknown as UserRow;
     return cleanUser(updatedRow)!;
   }
 
-  if (!password || password.length < 4) {
-    throw new Error('Informe uma senha com pelo menos 4 caracteres.');
+  if (!password || password.length < 8) {
+    throw new Error('Informe uma senha com pelo menos 8 caracteres.');
   }
   const id = 'u-' + crypto.randomBytes(6).toString('hex');
   const now = Date.now();
@@ -537,7 +542,7 @@ export function syncTechnicianUser(
   password: unknown,
   db = getDb()
 ): UserAccount | null {
-  const cleanUsername = String(username ?? '').trim() ? normalizeLogin(username) : '';
+  const cleanUsername = String(username ?? '').trim() ? requireCpf(username) : '';
   const cleanPassword = String(password ?? '').trim();
   const existing = db.prepare('SELECT * FROM users WHERE technician_id = ?').get(technician.id) as UserRow | undefined;
 
@@ -559,7 +564,7 @@ export function syncTechnicianUser(
     );
   }
 
-  if (cleanPassword.length < 4) throw new Error('Informe uma senha de pelo menos 4 caracteres para criar o acesso do técnico.');
+  if (cleanPassword.length < 4) throw new Error('Informe uma senha de pelo menos 8 caracteres para criar o acesso do técnico.');
 
   return saveUser(
     {

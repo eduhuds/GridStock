@@ -1,8 +1,9 @@
+import { secureRoute } from '@/lib/apiSecurity';
 import { masterLogin, convertMasterToCpf, masterLogout, changeMasterPassword, updateMasterUsername, requireMaster } from '@/lib/companies';
 import { getDb } from '@/lib/db';
 import { ensureSupabaseSynced, pullPlatformFromSupabase, pushPlatformToSupabase } from '@/lib/supabaseStore';
 
-export async function POST(req: Request) {
+async function handlePOST(req: Request) {
   try {
     await ensureSupabaseSynced(getDb());
     await pullPlatformFromSupabase();
@@ -15,14 +16,14 @@ export async function POST(req: Request) {
   }
 }
 
-export async function DELETE(req: Request) {
+async function handleDELETE(req: Request) {
   await pullPlatformFromSupabase();
   masterLogout(req);
   await pushPlatformToSupabase();
   return Response.json({ ok: true });
 }
 
-export async function PATCH(req: Request) {
+async function handlePATCH(req: Request) {
   try {
     await pullPlatformFromSupabase();
     try { requireMaster(req); } catch { return Response.json({ error: 'Acesso exclusivo do administrador da plataforma.' }, { status: 403 }); }
@@ -39,3 +40,7 @@ export async function PATCH(req: Request) {
     return Response.json({ error: e instanceof Error ? e.message : 'Não foi possível alterar a senha.' }, { status: 400 });
   }
 }
+
+export const POST = secureRoute(handlePOST);
+export const DELETE = secureRoute(handleDELETE);
+export const PATCH = secureRoute(handlePATCH);

@@ -1,3 +1,4 @@
+import { secureRoute } from '@/lib/apiSecurity';
 import { databaseForRequest, enforceCompanyAction } from '@/lib/companies';
 import { NextResponse } from 'next/server';
 import { getUserFromRequest, listUsers, loadState, saveState } from '@/lib/db';
@@ -6,7 +7,7 @@ import { ensureSupabaseSynced, pullPlatformFromSupabase, pushAllToSupabase } fro
 
 export const dynamic = 'force-dynamic';
 
-export async function DELETE(req: Request, context: { params: Promise<{ id: string }> }) {
+async function handleDELETE(req: Request, context: { params: Promise<{ id: string }> }) {
   try {
     await pullPlatformFromSupabase();
     enforceCompanyAction(req, 'technicians');
@@ -34,3 +35,5 @@ export async function DELETE(req: Request, context: { params: Promise<{ id: stri
     return NextResponse.json({ error: message }, { status: 400 });
   }
 }
+
+export const DELETE = secureRoute(handleDELETE);

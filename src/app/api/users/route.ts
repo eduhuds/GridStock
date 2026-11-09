@@ -1,3 +1,4 @@
+import { secureRoute } from '@/lib/apiSecurity';
 import { databaseForRequest, enforceCompanyAction } from '@/lib/companies';
 import { NextResponse } from 'next/server';
 import { getDb, getUserFromRequest, listUsers, saveUser } from '@/lib/db';
@@ -5,7 +6,7 @@ import { ensureSupabaseSynced, pullPlatformFromSupabase, pushAllToSupabase } fro
 
 export const dynamic = 'force-dynamic';
 
-export async function POST(req: Request) {
+async function handlePOST(req: Request) {
   try {
     await pullPlatformFromSupabase();
     const db = databaseForRequest(req);
@@ -19,9 +20,11 @@ export async function POST(req: Request) {
     if (db === getDb() && body.id === (process.env.GRIDSTOCK_MASTER_USER_ID || 'u-admin') && (user.id !== body.id || body.role === 'tech')) return NextResponse.json({ error: 'A conta do administrador geral é protegida.' }, { status: 403 });
     const saved = saveUser(body, db);
     await pushAllToSupabase(db);
-    return NextResponse.json({ user: saved, users: listUsers(db) });
+    return NextResponse.json({ savedUser: saved, users: listUsers(db) });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Erro ao salvar usuário.';
     return NextResponse.json({ error: message }, { status: 400 });
   }
 }
+
+export const POST = secureRoute(handlePOST);

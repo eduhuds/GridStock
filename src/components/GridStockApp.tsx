@@ -156,11 +156,13 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Login states
+  const [convertingCpf, setConvertingCpf] = useState(false);
+  const [legacyLogin, setLegacyLogin] = useState('');
   const [loginUser, setLoginUser] = useState<string>('');
   const [loginPass, setLoginPass] = useState<string>('');
   const [loginError, setLoginError] = useState<string>('');
   const [loginLoading, setLoginLoading] = useState<boolean>(false);
-  const [companyChoices, setCompanyChoices] = useState<{ slug: string; name: string; color: string; token: string }[]>([]);
+
 
   // Dynamic modal form states
   const [moveTechId, setMoveTechId] = useState<string>('');
@@ -332,7 +334,8 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
   );
 
   useEffect(() => {
-    const savedToken = localStorage.getItem(TOKEN_KEY) || '';
+    const savedToken = localStorage.getItem(TOKEN_KEY) === 'cookie' ? 'cookie' : '';
+    if (!savedToken) localStorage.removeItem(TOKEN_KEY);
     setAuthToken(savedToken);
     fetch('/api/bootstrap', {
       headers: { ...(savedToken ? { Authorization: `Bearer ${savedToken}` } : {}), ...(companySlug ? { 'X-Gridstock-Company': companySlug } : {}) },
@@ -551,14 +554,13 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
   const handleLogin = async (ev: React.FormEvent) => {
     ev.preventDefault();
     setLoginError('');
-    setCompanyChoices([]);
     setLoginLoading(true);
     try {
-      const data = await apiCall('POST', '/api/auth/login', { username: loginUser, password: loginPass, role: entryRole });
-      if (Array.isArray(data.companyChoices) && data.companyChoices.length > 0) {
-        setCompanyChoices(data.companyChoices);
-        return;
+      if (convertingCpf) {
+        await apiCall('POST', '/api/auth/convert-cpf', { legacyUsername: legacyLogin, password: loginPass, cpf: loginUser });
+        setConvertingCpf(false);
       }
+      const data = await apiCall('POST', '/api/auth/login', { cpf: loginUser, password: loginPass, role: entryRole });
       if (data.companySlug && data.companySlug !== companySlug) {
         const companyTokenKey = `${entryRole === 'tech' ? 'gridstock-tech-auth-token' : 'gridstock-auth-token'}:${data.companySlug}`;
         localStorage.setItem(companyTokenKey, data.token);
@@ -672,6 +674,7 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
     setFormError('');
     setXlsxImporting(true);
     try {
+      if (file.size > 10 * 1024 * 1024) throw new Error('Planilha excede 10 MB.');
       const matrix = await parseXlsxBytes(await file.arrayBuffer());
       if (matrix.length < 2) {
         throw new Error('A planilha .xlsx está vazia ou não possui linhas de produtos após o cabeçalho.');
@@ -809,40 +812,16 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
               <h2>{entryRole === 'tech' ? 'Área do técnico' : 'Controle operacional'}</h2>
               <p>{entryRole === 'tech' ? 'Entre para informar seu estoque pessoal e as peças que levará hoje.' : (companyConfig.fieldService ? 'Entre para acompanhar os estoques e a equipe em campo.' : 'Entre para gerenciar os produtos e estoques da sua empresa.')}</p>
               {loginError && <div className="error" role="alert">{loginError}</div>}
-              {companyChoices.length > 0 && (
-                <div className="panel" style={{ padding: '14px', marginBottom: '14px', background: '#f4f8f5', borderColor: '#cfe0d6' }}>
-                  <strong style={{ display: 'block', marginBottom: '8px', fontSize: '0.92rem' }}>
-                    Selecione a empresa que deseja acessar:
-                  </strong>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                    {companyChoices.map(choice => (
-                      <button
-                        key={choice.slug}
-                        type="button"
-                        className="button secondary full"
-                        style={{ justifyContent: 'space-between', borderColor: choice.color }}
-                        onClick={() => {
-                          const companyTokenKey = `${entryRole === 'tech' ? 'gridstock-tech-auth-token' : 'gridstock-auth-token'}:${choice.slug}`;
-                          localStorage.setItem(companyTokenKey, choice.token);
-                          window.location.href = entryRole === 'tech' ? `/empresa/${choice.slug}/tecnico` : `/empresa/${choice.slug}`;
-                        }}
-                      >
-                        <span>{choice.name}</span>
-                        <span className="muted small">/empresa/{choice.slug} →</span>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
+              {convertingCpf && <div className="field"><p>Abra o link da sua empresa e informe seu login antigo, sua senha atual e seu CPF verdadeiro. Esta conversão é feita uma única vez.</p><label htmlFor="legacy-login">Login anterior</label><input className="input" id="legacy-login" value={legacyLogin} onChange={e => setLegacyLogin(e.target.value)} autoComplete="username" required /></div>}
               <div className="field">
-                <label htmlFor="login-user">Usuário</label>
+                <label htmlFor="login-user">CPF</label>
                 <input
                   className="input"
                   id="login-user"
                   name="username"
                   value={loginUser}
                   onChange={e => setLoginUser(e.target.value)}
-                  placeholder={entryRole === 'tech' ? 'Seu usuário de técnico' : 'Seu usuário operacional'}
+                  placeholder="000.000.000-00" inputMode="numeric" maxLength={14}
                   autoComplete="username"
                   required
                 />
@@ -863,10 +842,11 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
               </div>
               <button className="button full" type="submit" disabled={loginLoading}>
                 <Icon name="check" />
-                {loginLoading ? 'Autenticando...' : 'Entrar no sistema'}
+                {loginLoading ? 'Autenticando...' : convertingCpf ? 'Cadastrar CPF e entrar' : 'Entrar no sistema'}
               </button>
+              <button type="button" className="text-link" onClick={() => { setConvertingCpf(!convertingCpf); setLoginError(''); }}>{convertingCpf ? 'Já tenho CPF cadastrado' : 'Primeiro acesso por CPF? Converter conta antiga'}</button>
               <div className="login-hint">
-                {entryRole === 'tech' ? 'Use o usuário e a senha fornecidos pelo operacional.' : (companyConfig.fieldService ? 'Cadastre a equipe e acompanhe as movimentações de cada técnico.' : 'Acesso exclusivo aos dados da sua empresa.')}
+                {entryRole === 'tech' ? 'Use seu CPF e a senha fornecida pelo administrador.' : (companyConfig.fieldService ? 'Cadastre a equipe e acompanhe as movimentações de cada técnico.' : 'Acesso exclusivo aos dados da sua empresa.')}
                 <br />
                 <a className="text-link" hidden={!companyConfig.fieldService} href={entryRole === 'tech' ? (companyBase || '/') : `${companyBase}/tecnico`}>
                   {entryRole === 'tech' ? 'Acesso do operacional' : 'Acesso exclusivo do técnico'}
@@ -3346,14 +3326,13 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
                 </div>
                 <div className="form-grid">
                   <div className="field">
-                    <label htmlFor="tech-username">Usuário de login</label>
+                    <label htmlFor="tech-username">CPF para acesso</label>
                     <input
                       className="input"
                       id="tech-username"
                       name="username"
                       defaultValue={linkedUser?.username || ''}
-                      placeholder="Ex.: rafael"
-                      maxLength={50}
+                      placeholder="000.000.000-00" inputMode="numeric" maxLength={14}
                     />
                     <small>Acesso individual em /tecnico para controlar estoque pessoal e saídas do dia.</small>
                   </div>
@@ -3724,14 +3703,14 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
                     <input className="input" id="u-name" name="name" placeholder="Ex.: Carlos Souza" required />
                   </div>
                   <div className="field">
-                    <label htmlFor="u-login">Login *</label>
-                    <input className="input" id="u-login" name="username" placeholder="Ex.: carlos" required />
+                    <label htmlFor="u-login">CPF *</label>
+                    <input className="input" id="u-login" name="username" inputMode="numeric" maxLength={14} placeholder="000.000.000-00" required />
                   </div>
                 </div>
                 <div className="form-grid">
                   <div className="field">
                     <label htmlFor="u-pass">Senha *</label>
-                    <input className="input" id="u-pass" name="password" type="password" placeholder="Mínimo 4 caracteres" required />
+                    <input className="input" id="u-pass" name="password" type="password" placeholder="Mínimo 8 caracteres" required />
                   </div>
                   <div className="field">
                     <label htmlFor="u-role">Perfil de acesso *</label>

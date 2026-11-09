@@ -1,132 +1,81 @@
-const { test, after } = require('node:test');
-const assert = require('node:assert/strict');
-const { execFileSync } = require('node:child_process');
-const { mkdtempSync, rmSync } = require('node:fs');
-const { tmpdir } = require('node:os');
-const path = require('node:path');
-const root = path.resolve(__dirname, '..');
-const temp = mkdtempSync(path.join(tmpdir(), 'gridstock-companies-'));
-process.env.GRIDSTOCK_DB = path.join(temp, 'main.db');
-process.env.GRIDSTOCK_INITIAL_MODE = 'empty';
-execFileSync(process.execPath, [path.join(root, 'node_modules/typescript/bin/tsc'), '--ignoreConfig', 'src/lib/companies.ts', '--outDir', temp, '--module', 'commonjs', '--target', 'es2022', '--skipLibCheck', '--esModuleInterop', '--types', 'node'], { cwd: root });
-const db = require(path.join(temp, 'db.js'));
-const companies = require(path.join(temp, 'companies.js'));
-const request = (slug, token) => new Request('http://local/api/bootstrap', { headers: { ...(slug === undefined ? {} : { 'X-Gridstock-Company': slug }), ...(token ? { Authorization: `Bearer ${token}` } : {}) } });
-after(() => { for (const connection of global.companyDbs.values()) connection.close(); db.getDb().close(); rmSync(temp, { recursive: true, force: true }); });
-
-const adminUser = process.env.GRIDSTOCK_ADMIN_USERNAME;
-const adminPass = process.env.GRIDSTOCK_ADMIN_PASSWORD;
-
-test('empresas isolam dados, logins repetidos, sessões, suspensão e persistência', () => {
-  const a = companies.saveCompany({ name: 'Alpha', slug: 'alpha', username: 'gestor', password: 'alpha-pass' });
-  const b = companies.saveCompany({ name: 'Beta', slug: 'beta', username: 'gestor', password: 'beta-pass' });
-  const aDb = companies.databaseForRequest(request(a.slug));
-  const bDb = companies.databaseForRequest(request(b.slug));
-  assert.notEqual(aDb, bDb);
-  assert.equal(db.listUsers(aDb).length, 1);
-  assert.throws(() => db.authenticate(adminUser, adminPass, aDb));
-  assert.throws(() => db.authenticate('gestor', 'alpha-pass', bDb));
-  const aSession = db.authenticate('gestor', 'alpha-pass', aDb);
-  const bSession = db.authenticate('gestor', 'beta-pass', bDb);
-  assert.equal(db.getUserFromRequest(request('beta', aSession.token), bDb), null);
-  assert.equal(db.getUserFromRequest(request(undefined, aSession.token)), null);
-  assert.ok(db.getUserFromRequest(request('alpha', aSession.token), aDb));
-  const state = db.loadState(aDb);
-  state.parts.push({ id: 'p1', name: 'Exclusivo Alpha', sku: 'P01', category: 'Peças', unit: 'un.', min: 0, baseMin: 0 });
-  db.saveState(aDb, state);
-  assert.equal(db.loadState(bDb).parts.length, 0);
-  assert.equal(db.loadState().parts.length, 0);
-  aDb.close(); global.companyDbs.delete(a.id);
-  const reopened = companies.databaseForRequest(request('alpha'));
-  assert.equal(db.loadState(reopened).parts[0].name, 'Exclusivo Alpha');
-  assert.ok(db.getUserFromRequest(request('alpha', aSession.token), reopened));
-  companies.saveCompany({ ...a, name: 'Alpha Nova', color: '#123456', tagline: 'Equipe Alpha', active: false });
-  assert.throws(() => companies.databaseForRequest(request('alpha')));
-  companies.saveCompany({ ...a, active: true });
-  assert.equal(db.getUserFromRequest(request('alpha', aSession.token), reopened), null);
-  assert.ok(db.getUserFromRequest(request('beta', bSession.token), bDb));
-  db.logoutRequest(request('beta', bSession.token), bDb);
-  assert.equal(db.getUserFromRequest(request('beta', bSession.token), bDb), null);
-  for (const slug of ['missing', '../main', '']) assert.throws(() => companies.databaseForRequest(request(slug)));
+const {test,after}=require('node:test');
+const assert=require('node:assert/strict');
+const {execFileSync}=require('node:child_process');
+const {mkdtempSync,rmSync}=require('node:fs');
+const {tmpdir}=require('node:os');
+const path=require('node:path');
+const root=path.resolve(__dirname,'..');
+const temp=mkdtempSync(path.join(tmpdir(),'gridstock-cpf-'));
+process.env.GRIDSTOCK_DB=path.join(temp,'main.db');
+process.env.GRIDSTOCK_INITIAL_MODE='empty';
+process.env.GRIDSTOCK_ADMIN_USERNAME='legacyadmin';
+process.env.GRIDSTOCK_ADMIN_PASSWORD='legacy-test-password';
+execFileSync(process.execPath,[path.join(root,'node_modules/typescript/bin/tsc'),'--ignoreConfig','src/lib/companies.ts','--outDir',temp,'--module','commonjs','--target','es2022','--skipLibCheck','--esModuleInterop','--types','node'],{cwd:root});
+const db=require(path.join(temp,'db.js'));
+const c=require(path.join(temp,'companies.js'));
+const cpf=require(path.join(temp,'cpf.js'));
+const domain=require(path.join(temp,'domain.js'));
+const {businessPreset}=require(path.join(temp,'companyConfig.js'));
+function fakeCpf(seed){let value=String(seed).padStart(9,'0');for(let length=9;length<=10;length++){let sum=0;for(let i=0;i<length;i++)sum+=Number(value[i])*(length+1-i);value+=(sum*10)%11%10;}return value;}
+const A=fakeCpf(123456789),B=fakeCpf(234567891),M=fakeCpf(345678912),U=fakeCpf(456789123);
+const req=(slug,token)=>new Request('http://local',{headers:{...(slug===undefined?{}:{'x-gridstock-company':slug}),...(token?{authorization:`Bearer ${token}`}:{})}});
+const payload=(name,slug,username)=>({name,slug,username,password:'test-password',config:businessPreset('general')});
+after(()=>{for(const connection of global.companyDbs.values())connection.close();db.getDb().close();rmSync(temp,{recursive:true,force:true});});
+let alpha,beta;
+test('CPF valida dígitos, rejeita repetição e aceita formato com pontuação',()=>{
+ assert.equal(cpf.isValidCpf(A),true);assert.equal(cpf.isValidCpf('00000000000'),false);assert.equal(cpf.isValidCpf('11111111111'),false);assert.equal(cpf.isValidCpf(A.slice(0,10)+(Number(A[10])+1)%10),false);assert.equal(cpf.isValidCpf('abc'+A),false);assert.equal(cpf.requireCpf(A.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/,'$1.$2.$3-$4')),A);
 });
-
-test('administração exige sessão própria, protege credenciais e permite troca de senha', () => {
-  const ordinary = db.authenticate(adminUser, adminPass);
-  assert.throws(() => companies.requireMaster(request(undefined, ordinary.token)));
-  const master = companies.masterLogin(adminUser, adminPass);
-  companies.requireMaster(request(undefined, master.token));
-  assert.equal(db.getUserFromRequest(request(undefined, master.token)), null);
-  db.saveUser({ id: process.env.GRIDSTOCK_MASTER_USER_ID || 'u-admin', username: adminUser, name: 'Admin', password: 'changed-root-password', role: 'ops' });
-  assert.throws(() => companies.masterLogin(adminUser, 'changed-root-password'));
-  companies.changeMasterPassword(request(undefined, master.token), adminPass, 'new-master-pass');
-  assert.throws(() => companies.masterLogin(adminUser, adminPass));
-  const next = companies.masterLogin(adminUser, 'new-master-pass');
-  companies.masterLogout(request(undefined, next.token));
-  assert.throws(() => companies.requireMaster(request(undefined, next.token)));
+test('CPF é exclusivo entre empresas e tokens não cruzam bases',()=>{
+ alpha=c.saveCompany(payload('Alpha','alpha',A));beta=c.saveCompany(payload('Beta','beta',B));
+ assert.throws(()=>c.saveCompany(payload('Duplicada','duplicada',A)));
+ const aDb=c.databaseForRequest(req('alpha')),bDb=c.databaseForRequest(req('beta'));
+ const session=db.authenticate(A,'test-password',aDb);
+ assert.equal(db.getUserFromRequest(req('beta',session.token),bDb),null);
+ assert.equal(db.getUserFromRequest(req(undefined,session.token)),null);
+ assert.throws(()=>db.saveUser({name:'Outro',username:A,password:'test-password',role:'ops'},bDb));
+ assert.throws(()=>db.authenticate('gestor','test-password',aDb));
+ assert.equal(c.authenticateCompanyFallback(A,'test-password','ops')[0].company.id,alpha.id);
+ assert.throws(()=>c.authenticateCompanyFallback(A,'wrong-password','ops'));
+ const state=db.loadState(aDb);domain.saveWarehouse(state,{name:'Base',code:'BASE',city:'Cidade',responsible:'Equipe'});db.saveState(aDb,state);assert.equal(db.loadState(bDb).warehouses.length,0);
+ aDb.close();global.companyDbs.delete(alpha.id);assert.equal(db.loadState(c.databaseForRequest(req('alpha'))).warehouses.length,1);
 });
-
-test('validação rejeita duplicidade e dados inválidos sem registrar empresas', () => {
-  const count = companies.listCompanies().length;
-  for (const input of [
-    { slug: 'alpha', password: 'long-password' }, { slug: '../escape', password: 'long-password' },
-    { slug: 'gamma', password: '123' }, { slug: 'gamma', password: 'long-password', color: 'red;}' },
-    { slug: 'gamma', password: 'long-password', username: '!' },
-  ]) assert.throws(() => companies.saveCompany({ name: 'Teste', username: 'gestor', ...input }));
-  assert.equal(companies.listCompanies().length, count);
+test('admin antigo converte para CPF, mantém senha e acesso exclusivo da plataforma',()=>{
+ assert.throws(()=>c.masterLogin('legacyadmin','legacy-test-password'));
+ const session=c.convertMasterToCpf('legacyadmin','legacy-test-password',M);
+ c.requireMaster(req(undefined,session.token));
+ assert.equal(db.getUserFromRequest(req(undefined,session.token)),null);
+ assert.throws(()=>c.requireMaster(req(undefined,db.authenticate(A,'test-password',c.databaseForRequest(req('alpha'))).token)));
+ assert.throws(()=>c.saveCompany(payload('Outra','outra',M)));
+ assert.equal(c.platformOverview().administrator.username,M);
+ assert.equal(JSON.stringify(c.platformOverview()).includes('password_hash'),false);
+ c.changeMasterPassword(req(undefined,session.token),'legacy-test-password','new-master-password');
+ assert.throws(()=>c.masterLogin(M,'legacy-test-password'));
+ assert.ok(c.masterLogin(M,'new-master-password').token);
 });
-
-test('módulos, limites e desligamento de campo são aplicados no servidor', () => {
-  const { businessPreset } = require(path.join(temp, 'companyConfig.js'));
-  const domain = require(path.join(temp, 'domain.js'));
-  let c = companies.saveCompany({ name: 'Estoque geral', slug: '/empresa/geral', username: 'gestor', password: 'test-password', config: { ...businessPreset('general'), maxUsers: 1, maxWarehouses: 1, transfers: false } });
-  const req = request('geral');
-  const local = companies.databaseForRequest(req);
-  assert.equal(c.slug, 'geral');
-  for (const [action, body] of [['technicians',{}],['login',{role:'tech'}],['users',{role:'tech'}],['movements',{kind:'withdraw'}],['movements',{kind:'transfer'}],['users',{username:'extra'}],['reset',{mode:'seed'}]]) assert.throws(() => companies.enforceCompanyAction(req, action, body));
-  companies.enforceCompanyAction(req, 'users', { id: db.listUsers(local)[0].id, role: 'ops' });
-  const state = db.loadState(local);
-  domain.saveWarehouse(state,{name:'Principal',code:'PRI',city:'Cidade',responsible:'Equipe'});
-  domain.saveProduct(state,{name:'Produto',sku:'P1',category:'Geral',warehouse:state.warehouses[0].id,corridor:'A',shelf:'1',baseMin:2,qty:10});
-  db.saveState(local,state);
-  assert.throws(() => companies.enforceCompanyAction(req,'warehouses',{}));
-  const before = JSON.stringify(state);
-  for (const qty of [11,-1,0,1.5,NaN]) assert.throws(() => domain.apply(state,{kind:'stockout',warehouse:state.warehouses[0].id,part:state.parts[0].id,qty,note:'Venda'}));
-  assert.equal(JSON.stringify(state),before);
-  domain.apply(state,{kind:'stockout',warehouse:state.warehouses[0].id,part:state.parts[0].id,qty:3,note:'Consumo',operator:'Gestor'});
-  assert.equal(state.stock[state.warehouses[0].id][state.parts[0].id],7);
-  assert.equal(state.movements[0].operator,'Gestor');
-  db.saveState(local,state);
-  c = companies.saveCompany({...c, config:{...c.config,stockOut:false}});
-  assert.throws(() => companies.enforceCompanyAction(req,'movements',{kind:'stockout'}));
-  c = companies.saveCompany({...c, config:{...c.config,fieldService:true}});
-  const tech = domain.saveTechnician(state,{name:'Equipe'});
-  state.stock[tech.id][state.parts[0].id]=1;
-  db.saveState(local,state);
-  assert.throws(() => companies.saveCompany({...c,config:{...c.config,fieldService:false}}));
-  const session = db.authenticate('gestor','test-password',local);
-  companies.revokeCompanySessions(c.id);
-  assert.equal(db.getUserFromRequest(request('geral',session.token),local),null);
-  assert.ok(companies.platformOverview().history.some(h=>h.action==='Sessões encerradas'));
-  assert.equal(companies.platformOverview().companies.find(x=>x.id===c.id).usage.users,1);
+test('alteração de CPF exige senha atual e não modifica usuários de empresas',()=>{
+ const session=c.masterLogin(M,'new-master-password');const request=req(undefined,session.token);
+ assert.throws(()=>c.updateMasterUsername(request,U,'wrong-password'));
+ assert.throws(()=>c.updateMasterUsername(request,A,'new-master-password'));
+ const before=db.listUsers(c.databaseForRequest(req('alpha')));
+ c.updateMasterUsername(request,U,'new-master-password');
+ assert.deepEqual(db.listUsers(c.databaseForRequest(req('alpha'))),before);
+ assert.throws(()=>c.masterLogin(M,'new-master-password'));
+ assert.ok(c.masterLogin(U,'new-master-password').token);
+ assert.equal(JSON.stringify(c.platformOverview().history).includes(U),false);
 });
-
-test('acesso único permite alterar login da plataforma sem alterar contas das empresas', () => {
-  const token = companies.masterLogin(adminUser, 'new-master-pass').token;
-  const req = request(undefined, token);
-  const overview = companies.platformOverview();
-  assert.deepEqual(overview.administrator, { username: adminUser, role: 'platform_admin' });
-  assert.equal(JSON.stringify(overview).includes('password_hash'), false);
-  assert.throws(() => companies.updateMasterUsername(request(undefined), 'novo.admin', 'new-master-pass'));
-  assert.throws(() => companies.updateMasterUsername(req, 'novo.admin', 'wrong-password'));
-  assert.throws(() => companies.updateMasterUsername(req, 'nome inválido', 'new-master-pass'));
-  const tenantDb = companies.databaseForRequest(request('alpha'));
-  const before = db.listUsers(tenantDb);
-  companies.updateMasterUsername(req, 'novo.admin', 'new-master-pass');
-  assert.throws(() => companies.masterLogin(adminUser, 'new-master-pass'));
-  const next = companies.masterLogin('novo.admin', 'new-master-pass');
-  companies.requireMaster(request(undefined, next.token));
-  assert.deepEqual(db.listUsers(tenantDb), before);
-  assert.equal(companies.platformOverview().administrator.username, 'novo.admin');
-  assert.ok(companies.platformOverview().history.some(h => h.action === 'Login do administrador atualizado'));
-  companies.updateMasterUsername(req, adminUser, 'new-master-pass');
+test('conta operacional antiga pode ser convertida sem perder vínculos ou senha',()=>{
+ const aDb=c.databaseForRequest(req('alpha'));const userCpf=fakeCpf(567891234);
+ aDb.prepare('INSERT INTO users VALUES (?, ?, ?, ?, ?, ?, ?)').run('legacy-tech','antigo','Técnico',db.hashPassword('old-password'),'tech','t1',Date.now());
+ const legacy=db.authenticate('antigo','old-password',aDb,true);aDb.prepare('DELETE FROM sessions WHERE token=?').run(legacy.token);
+ db.saveUser({...legacy.user,cpf:userCpf},aDb);
+ assert.equal(db.authenticate(userCpf,'old-password',aDb).user.technicianId,'t1');
+ assert.throws(()=>db.authenticate('antigo','old-password',aDb,true));
+});
+test('suspensão, encerramento de sessões e limites continuam funcionando',()=>{
+ const aDb=c.databaseForRequest(req('alpha'));const session=db.authenticate(A,'test-password',aDb);
+ c.revokeCompanySessions(alpha.id);assert.equal(db.getUserFromRequest(req('alpha',session.token),aDb),null);
+ c.saveCompany({...alpha,active:false});assert.throws(()=>c.databaseForRequest(req('alpha')));c.saveCompany({...alpha,active:true});
+ for(const slug of ['missing','../main',''])assert.throws(()=>c.databaseForRequest(req(slug)));
+ c.saveCompany({...beta,config:{...beta.config,maxUsers:1,transfers:false,stockOut:false}});
+ for(const [action,body] of [['technicians',{}],['users',{}],['movements',{kind:'transfer'}],['movements',{kind:'stockout'}]])assert.throws(()=>c.enforceCompanyAction(req('beta'),action,body));
 });

@@ -14,12 +14,14 @@ try {
 } catch {}
 
 function hashPassword(password) {
+  if (String(password).length > 256) throw new Error('A senha deve ter no máximo 256 caracteres.');
   const salt = crypto.randomBytes(16).toString('hex');
   const hash = crypto.scryptSync(String(password), salt, 64).toString('hex');
   return `${salt}:${hash}`;
 }
 
 function verifyPassword(password, stored) {
+  if (String(password).length > 256) return false;
   if (!stored || !stored.includes(':')) return false;
   const [salt, hash] = stored.split(':');
   const candidate = crypto.scryptSync(String(password), salt, 64);
@@ -388,7 +390,7 @@ function authenticate(db, username, password) {
   }
   const token = crypto.randomBytes(32).toString('hex');
   const now = Date.now();
-  const expiresAt = now + 30 * 24 * 60 * 60 * 1000; // 30 days
+  const expiresAt = now + 12 * 60 * 60 * 1000; // 30 days
   db.prepare('INSERT INTO sessions (token, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)').run(
     token,
     row.id,
@@ -444,7 +446,7 @@ function saveUser(db, payload) {
 
   if (editing) {
     const nextHash = password ? hashPassword(password) : existing.password_hash;
-    if (password && password.length < 4) throw Error('A senha deve ter pelo menos 4 caracteres.');
+    if (password && password.length < 8) throw Error('A senha deve ter pelo menos 8 caracteres.');
     db.prepare(`
       UPDATE users SET username = ?, name = ?, password_hash = ?, role = ?, technician_id = ?
       WHERE id = ?
@@ -452,8 +454,8 @@ function saveUser(db, payload) {
     return cleanUser(db.prepare('SELECT * FROM users WHERE id = ?').get(existing.id));
   }
 
-  if (!password || password.length < 4) {
-    throw Error('Informe uma senha com pelo menos 4 caracteres.');
+  if (!password || password.length < 8) {
+    throw Error('Informe uma senha com pelo menos 8 caracteres.');
   }
   const id = 'u-' + crypto.randomBytes(6).toString('hex');
   const now = Date.now();

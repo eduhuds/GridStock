@@ -1,3 +1,4 @@
+import { secureRoute } from '@/lib/apiSecurity';
 import { databaseForRequest, enforceCompanyAction } from '@/lib/companies';
 import { NextResponse } from 'next/server';
 import { getUserFromRequest, listUsers, loadState, saveState, syncTechnicianUser } from '@/lib/db';
@@ -6,7 +7,7 @@ import { ensureSupabaseSynced, pullPlatformFromSupabase, pushAllToSupabase } fro
 
 export const dynamic = 'force-dynamic';
 
-export async function POST(req: Request) {
+async function handlePOST(req: Request) {
   try {
     await pullPlatformFromSupabase();
     const db = databaseForRequest(req);
@@ -15,7 +16,9 @@ export async function POST(req: Request) {
     if (!user) return NextResponse.json({ error: 'Não autenticado.' }, { status: 401 });
     if (user.role !== 'ops') return NextResponse.json({ error: 'Acesso restrito ao Controle Operacional.' }, { status: 403 });
 
+    if (req.headers.has('x-gridstock-company')) return NextResponse.json({ error: 'Solicite a redefinição ao administrador da plataforma.' }, { status: 403 });
     const body = await req.json();
+    if (!['seed', 'empty'].includes(body.mode)) return NextResponse.json({ error: 'Modo inválido.' }, { status: 400 });
     enforceCompanyAction(req, 'reset', body);
     const nextState = body.mode === 'seed' ? seed() : emptyState();
     saveState(db, nextState);
@@ -46,3 +49,5 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: message }, { status: 400 });
   }
 }
+
+export const POST = secureRoute(handlePOST);

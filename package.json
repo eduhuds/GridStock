@@ -2,12 +2,12 @@
   "name": "gridstock",
   "version": "2.0.0",
   "private": true,
-  "description": "GridStock \u2014 Gest\u00e3o operacional de estoques, endere\u00e7amento f\u00edsico, movimenta\u00e7\u00f5es e equipes t\u00e9cnicas em campo com Next.js, TypeScript, React e SQLite.",
+  "description": "GridStock — Gestão operacional de estoques, endereçamento físico, movimentações e equipes técnicas em campo com Next.js, TypeScript, React e SQLite.",
   "scripts": {
     "dev": "rm -f .next/dev/lock && next dev --webpack",
     "build": "next build",
     "start": "next start -p 8080",
-    "test": "node --test tests/domain.test.cjs tests/server.test.cjs tests/dashboard.test.cjs tests/companies.test.cjs"
+    "test": "node --test tests/domain.test.cjs tests/server.test.cjs tests/dashboard.test.cjs tests/companies.test.cjs tests/security.test.cjs"
   },
   "keywords": [
     "nextjs",

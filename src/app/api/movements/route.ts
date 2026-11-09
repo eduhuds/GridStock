@@ -1,3 +1,4 @@
+import { secureRoute } from '@/lib/apiSecurity';
 import { databaseForRequest, enforceCompanyAction } from '@/lib/companies';
 import { NextResponse } from 'next/server';
 import { stateForUser, getUserFromRequest, loadState, saveState } from '@/lib/db';
@@ -6,7 +7,7 @@ import { ensureSupabaseSynced, pullPlatformFromSupabase, pushAllToSupabase } fro
 
 export const dynamic = 'force-dynamic';
 
-export async function POST(req: Request) {
+async function handlePOST(req: Request) {
   try {
     await pullPlatformFromSupabase();
     const db = databaseForRequest(req);
@@ -33,3 +34,5 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: message }, { status: 400 });
   }
 }
+
+export const POST = secureRoute(handlePOST);

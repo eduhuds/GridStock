@@ -1,8 +1,9 @@
-import { authenticate, getDb, listUsers, saveUser } from '@/lib/db';
+import { secureRoute } from '@/lib/apiSecurity';
+import { authenticate, saveUser } from '@/lib/db';
 import { databaseForRequest, enforceCompanyAction } from '@/lib/companies';
 import { requireCpf } from '@/lib/cpf';
 import { ensureSupabaseSynced, pullPlatformFromSupabase, pushAllToSupabase } from '@/lib/supabaseStore';
-export async function POST(req: Request) {
+async function handlePOST(req: Request) {
   try {
     const body = await req.json();
     const cpf = requireCpf(body.cpf);
@@ -20,3 +21,5 @@ export async function POST(req: Request) {
     return Response.json({ error: 'Não foi possível converter. Confira o login e a senha atuais, use um CPF válido e ainda não cadastrado, e abra o link da sua empresa.' }, { status: 400 });
   }
 }
+
+export const POST = secureRoute(handlePOST);
