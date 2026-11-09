@@ -1,8 +1,8 @@
-import { requireCpf } from '@/lib/cpf';
+import { normalizeLogin } from '@/lib/cpf';
 import { authenticateCompanyFallback, configForRequest, databaseForRequest, enforceCompanyAction } from '@/lib/companies';
 import { NextResponse } from 'next/server';
 import { authenticate, stateForUser, listUsers, loadState } from '@/lib/db';
-import { ensureSupabaseSynced, pullPlatformFromSupabase, pushAllToSupabase, pushPlatformToSupabase } from '@/lib/supabaseStore';
+import { ensureSupabaseSynced, pullPlatformFromSupabase, pushAllToSupabase } from '@/lib/supabaseStore';
 
 export const dynamic = 'force-dynamic';
 
@@ -21,14 +21,22 @@ async function respondWithCompanyMatches(matches: ReturnType<typeof authenticate
       companySlug: companyMatch.company.slug,
     });
   }
-  return NextResponse.json({ error: 'CPF ou senha inválidos.' }, { status: 401 });
+  return NextResponse.json({
+    requiresCompanySelection: true,
+    companies: matches.map(m => ({
+      slug: m.company.slug,
+      name: m.company.name,
+      color: m.company.color,
+    })),
+    error: 'Este login existe em mais de uma empresa. Selecione a empresa abaixo para entrar.',
+  });
 }
 
 export async function POST(req: Request) {
   try {
     await pullPlatformFromSupabase();
     const body = await req.json();
-    body.username = requireCpf(body.cpf ?? body.username);
+    body.username = normalizeLogin(body.cpf ?? body.username);
     const hasCompanyHeader = req.headers.get('x-gridstock-company') !== null;
     enforceCompanyAction(req, 'login', body);
     const db = databaseForRequest(req);

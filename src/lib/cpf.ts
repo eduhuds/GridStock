@@ -21,5 +21,16 @@ export function requireCpf(value: unknown): string {
 }
 export function maskCpf(value: unknown): string {
   const cpf = normalizeCpf(value);
-  return isValidCpf(cpf) ? `***.${cpf.slice(3,6)}.${cpf.slice(6,9)}-**` : 'CPF pendente';
+  return isValidCpf(cpf) ? `***.${cpf.slice(3,6)}.${cpf.slice(6,9)}-**` : String(value ?? '').trim() || 'CPF pendente';
+}
+export function normalizeLogin(value: unknown): string {
+  const raw = String(value ?? '').trim();
+  if (!raw) throw new Error('Informe um CPF ou usuário válido.');
+  if (isValidCpf(raw)) return normalizeCpf(raw);
+  if (/^[\d.\-\s]+$/.test(raw)) throw new Error('Informe um CPF válido com 11 dígitos.');
+  const lower = raw.toLowerCase();
+  if (!/^[a-z0-9._@-]{3,50}$/.test(lower)) {
+    throw new Error('Informe um CPF válido ou login de 3 a 50 caracteres (letras, números, ponto, hífen ou @).');
+  }
+  return lower;
 }

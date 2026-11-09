@@ -5,6 +5,7 @@ import { ensureSupabaseSynced, pullPlatformFromSupabase, pushPlatformToSupabase 
 export async function POST(req: Request) {
   try {
     await ensureSupabaseSynced(getDb());
+    await pullPlatformFromSupabase();
     const body = await req.json();
     const res = body.action === 'convertToCpf' ? convertMasterToCpf(body.legacyUsername, body.password, body.cpf) : masterLogin(body.cpf ?? body.username, body.password);
     await pushPlatformToSupabase();
