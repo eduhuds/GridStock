@@ -871,7 +871,7 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
                 <a className="text-link" hidden={!companyConfig.fieldService} href={entryRole === 'tech' ? (companyBase || '/') : `${companyBase}/tecnico`}>
                   {entryRole === 'tech' ? 'Acesso do operacional' : 'Acesso exclusivo do técnico'}
                 </a>
-                {!company && <><br /><a className="text-link" href="/administracao">Administrar empresas</a></>}
+                {!company && <><br /><a className="text-link" href="/administracao">Central de Administração</a></>}
               </div>
             </form>
           </main>

@@ -109,3 +109,24 @@ test('módulos, limites e desligamento de campo são aplicados no servidor', () 
   assert.ok(companies.platformOverview().history.some(h=>h.action==='Sessões encerradas'));
   assert.equal(companies.platformOverview().companies.find(x=>x.id===c.id).usage.users,1);
 });
+
+test('acesso único permite alterar login da plataforma sem alterar contas das empresas', () => {
+  const token = companies.masterLogin(adminUser, 'new-master-pass').token;
+  const req = request(undefined, token);
+  const overview = companies.platformOverview();
+  assert.deepEqual(overview.administrator, { username: adminUser, role: 'platform_admin' });
+  assert.equal(JSON.stringify(overview).includes('password_hash'), false);
+  assert.throws(() => companies.updateMasterUsername(request(undefined), 'novo.admin', 'new-master-pass'));
+  assert.throws(() => companies.updateMasterUsername(req, 'novo.admin', 'wrong-password'));
+  assert.throws(() => companies.updateMasterUsername(req, 'nome inválido', 'new-master-pass'));
+  const tenantDb = companies.databaseForRequest(request('alpha'));
+  const before = db.listUsers(tenantDb);
+  companies.updateMasterUsername(req, 'novo.admin', 'new-master-pass');
+  assert.throws(() => companies.masterLogin(adminUser, 'new-master-pass'));
+  const next = companies.masterLogin('novo.admin', 'new-master-pass');
+  companies.requireMaster(request(undefined, next.token));
+  assert.deepEqual(db.listUsers(tenantDb), before);
+  assert.equal(companies.platformOverview().administrator.username, 'novo.admin');
+  assert.ok(companies.platformOverview().history.some(h => h.action === 'Login do administrador atualizado'));
+  companies.updateMasterUsername(req, adminUser, 'new-master-pass');
+});

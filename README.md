@@ -124,3 +124,19 @@ ser revisadas antes de exposição externa.
 `npm test` inclui testes de isolamento entre empresas, usuários com o mesmo login,
 persistência após reabrir o banco, suspensão/reativação, logout, acesso administrativo,
 troca de senha e validação de cadastros. Os testes usam bancos temporários.
+
+
+### Central de Administração — acesso único
+
+A página `/administracao` reúne as funções do administrador do sistema no mesmo login
+anteriormente usado em “Administrar empresas”. O link na entrada do sistema passa a se
+chamar **Central de Administração**. Não é necessário criar uma segunda conta.
+
+- **Visão geral:** totais de empresas, usuários, estoques e produtos, situação das operações e atalhos.
+- **Empresas e módulos:** cadastros, identidade visual, perfil de negócio, módulos, limites e ações de manutenção já existentes.
+- **Histórico de ações:** consulta e busca nas últimas 30 ações administrativas registradas.
+- **Minha conta:** identificação do administrador da plataforma, alteração do nome de login mediante senha atual e troca de senha.
+
+O administrador da plataforma é independente das contas operacionais das empresas.
+Alterar seu nome de usuário não altera o login de nenhum cliente. A mudança fica registrada
+no histórico. O botão **Atualizar dados** consulta novamente os indicadores e o histórico.

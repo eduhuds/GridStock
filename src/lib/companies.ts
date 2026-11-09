@@ -1,3 +1,4 @@
+import { isValidCpf, requireCpf, normalizeCpf, maskCpf } from './cpf';
 import { defaultConfig, parseCompanyConfig, type CompanyConfig } from './companyConfig';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -73,36 +74,27 @@ export function databaseForRequest(req: Request) {
 }
 
 export function authenticateCompanyFallback(username: unknown, password: unknown, requiredRole?: string) {
-  const matches: { company: Company; db: DatabaseSync; token: string; user: ReturnType<typeof authenticate>['user'] }[] = [];
-  for (const company of listCompanies()) {
-    if (!company.active) continue;
-    if (requiredRole === 'tech' && !company.config.fieldService) continue;
-    const db = companyDb(company);
-    try {
-      const auth = authenticate(username, password, db);
-      if (requiredRole && auth.user.role !== requiredRole) {
-        db.prepare('DELETE FROM sessions WHERE token = ?').run(auth.token);
-        continue;
-      }
-      if (auth.user.role === 'tech' && !company.config.fieldService) {
-        db.prepare('DELETE FROM sessions WHERE token = ?').run(auth.token);
-        continue;
-      }
-      matches.push({ company, db, ...auth });
-    } catch {
-      continue;
-    }
+  const cpf = requireCpf(username);
+  const candidates = listCompanies().filter(c => c.active && (requiredRole !== 'tech' || c.config.fieldService)).map(company => ({company, db:companyDb(company)})).filter(({db}) => db.prepare('SELECT id FROM users WHERE username = ?').get(cpf));
+  if (candidates.length !== 1) throw new Error('CPF ou senha inválidos. Consulte o administrador se precisar regularizar seu cadastro.');
+  const { company, db } = candidates[0];
+  const auth = authenticate(cpf, password, db);
+  if ((requiredRole && auth.user.role !== requiredRole) || (auth.user.role === 'tech' && !company.config.fieldService)) {
+    db.prepare('DELETE FROM sessions WHERE token = ?').run(auth.token);
+    throw new Error('CPF ou senha inválidos.');
   }
-  return matches;
+  return [{ company, db, ...auth }];
 }
 function masterToken(req: Request) { return (req.headers.get('authorization') || '').replace(/^Bearer /, ''); }
 export function requireMaster(req: Request) {
   const session = registry().prepare('SELECT created_at FROM master_sessions WHERE token = ?').get(masterToken(req)) as { created_at: number } | undefined;
   if (!session || session.created_at + 12 * 60 * 60 * 1000 <= Date.now()) throw new Error('Acesso exclusivo do administrador geral.');
 }
-export function masterLogin(username: unknown, password: unknown) {
+export function masterLogin(username: unknown, password: unknown, legacyConversion = false) {
   const db = registry();
   const account = db.prepare('SELECT * FROM master_account WHERE id=1').get() as { username: string; password_hash: string } | undefined;
+  if (!legacyConversion) username = requireCpf(username);
+  if (legacyConversion && account && isValidCpf(account.username)) throw new Error('Esta conta já utiliza CPF.');
   if (!account || String(username).trim().toLowerCase() !== account.username.toLowerCase() || !verifyPassword(String(password || ''), account.password_hash)) throw new Error('Credenciais inválidas.');
   const token = crypto.randomBytes(32).toString('base64url');
   db.prepare('DELETE FROM master_sessions WHERE created_at < ?').run(Date.now() - 12 * 60 * 60 * 1000);
@@ -138,13 +130,14 @@ export function saveCompany(body: Record<string, unknown>): Company {
     const count = (tenantDb.prepare('SELECT COUNT(*) AS n FROM users').get() as { n: number }).n;
     if (count > config.maxUsers || state.warehouses.length > config.maxWarehouses) throw new Error('O limite não pode ficar abaixo da quantidade já cadastrada.');
   }
+  if (!existing) requireCpf(body.cpf ?? body.username);
   const company: Company = { config, id: existing?.id || crypto.randomUUID(), slug, name, tagline, color, active: existing ? (typeof body.active === 'boolean' ? body.active : existing.active) : true, createdAt: existing?.createdAt || Date.now() };
   if (!existing) {
     const password = String(body.password || '');
     if (password.trim().length < 8) throw new Error('Use pelo menos 8 caracteres na senha do responsável.');
     const tenantDb = companyDb(company);
     try {
-      saveUser({ username: body.username, name: body.adminName || name, password, role: 'ops' }, tenantDb);
+      saveUser({ username: body.cpf ?? body.username, name: body.adminName || name, password, role: 'ops' }, tenantDb);
     } catch (err) {
       tenantDb.close(); cache.companyDbs!.delete(company.id);
       throw err;
@@ -189,7 +182,8 @@ export function platformOverview() {
     } };
   });
   const history = registry().prepare('SELECT id, company_name AS companyName, action, ts FROM platform_audit ORDER BY id DESC LIMIT 30').all();
-  return { companies, history };
+  const account = registry().prepare('SELECT username FROM master_account WHERE id=1').get() as { username: string } | undefined;
+  return { companies, history, administrator: account ? { username: account.username, role: 'platform_admin' } : null };
 }
 export function revokeCompanySessions(id: string) {
   const company = listCompanies().find(c => c.id === id);
@@ -360,4 +354,42 @@ export function importCompanySnapshot(companyId: string, snapshot: CompanyDbSnap
   if (snapshot.state) {
     saveState(tenantDb, snapshot.state);
   }
+}
+
+/** Changes only the platform identity; tenant accounts remain independent. */
+export function updateMasterUsername(req: Request, username: unknown, currentPassword: unknown) {
+  requireMaster(req);
+  const db = registry();
+  const account = db.prepare('SELECT username, password_hash FROM master_account WHERE id=1').get() as { username: string; password_hash: string } | undefined;
+  if (!account || !verifyPassword(String(currentPassword || ''), account.password_hash)) throw new Error('Senha atual incorreta.');
+  const next = requireCpf(username);
+  assertCpfAvailable(next, 'platform', 'master');
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    db.prepare('UPDATE master_account SET username = ? WHERE id=1').run(next);
+    db.prepare('INSERT INTO platform_audit (company_id, company_name, action, detail, ts) VALUES (?, ?, ?, ?, ?)').run('platform', 'GRIDSTOCK', 'CPF do administrador atualizado', JSON.stringify({ before: maskCpf(account.username), after: maskCpf(next) }), Date.now());
+    db.exec('COMMIT');
+  } catch (error) { db.exec('ROLLBACK'); throw error; }
+  return { username: next, role: 'platform_admin' };
+}
+
+/** Called synchronously before writing an identity. Never reveal the other owner. */
+export function assertCpfAvailable(value: unknown, scope: string, userId: string) {
+  const cpf = requireCpf(value);
+  const root = registry();
+  const master = root.prepare('SELECT username FROM master_account WHERE id=1').get() as {username:string} | undefined;
+  if (scope !== 'platform' && master && normalizeCpf(master.username) === cpf) throw new Error('Este CPF já possui um cadastro. Consulte o administrador da plataforma.');
+  const databases = new Map<string, DatabaseSync>([['root', root], ...listCompanies().map(c => [c.id, companyDb(c)] as [string, DatabaseSync]), ...cache.companyDbs!.entries()]);
+  for (const [databaseScope, db] of databases) {
+    const users = db.prepare('SELECT id, username FROM users').all() as { id:string; username:string }[];
+    if (users.some(u => normalizeCpf(u.username) === cpf && !(databaseScope === scope && u.id === userId))) throw new Error('Este CPF já possui um cadastro. Consulte o administrador da plataforma.');
+  }
+}
+export function convertMasterToCpf(username: unknown, password: unknown, cpf: unknown) {
+  const next = requireCpf(cpf);
+  const {token} = masterLogin(username, password, true);
+  const req = new Request('http://local', {headers:{authorization:`Bearer ${token}`}});
+  try { updateMasterUsername(req, next, password); }
+  finally { masterLogout(req); }
+  return masterLogin(next, password);
 }

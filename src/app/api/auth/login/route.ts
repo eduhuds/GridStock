@@ -1,3 +1,4 @@
+import { requireCpf } from '@/lib/cpf';
 import { authenticateCompanyFallback, configForRequest, databaseForRequest, enforceCompanyAction } from '@/lib/companies';
 import { NextResponse } from 'next/server';
 import { authenticate, stateForUser, listUsers, loadState } from '@/lib/db';
@@ -20,21 +21,14 @@ async function respondWithCompanyMatches(matches: ReturnType<typeof authenticate
       companySlug: companyMatch.company.slug,
     });
   }
-  await pushPlatformToSupabase();
-  return NextResponse.json({
-    companyChoices: matches.map(m => ({
-      slug: m.company.slug,
-      name: m.company.name,
-      color: m.company.color,
-      token: m.token,
-    })),
-  });
+  return NextResponse.json({ error: 'CPF ou senha inválidos.' }, { status: 401 });
 }
 
 export async function POST(req: Request) {
   try {
     await pullPlatformFromSupabase();
     const body = await req.json();
+    body.username = requireCpf(body.cpf ?? body.username);
     const hasCompanyHeader = req.headers.get('x-gridstock-company') !== null;
     enforceCompanyAction(req, 'login', body);
     const db = databaseForRequest(req);

@@ -1,3 +1,5 @@
+import { requireCpf, isValidCpf, normalizeCpf } from './cpf';
+import { assertCpfAvailable, companyIdForDatabase } from './companies';
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
@@ -429,13 +431,13 @@ export function saveState(db: DatabaseSync, s: GridStockState): void {
   }
 }
 
-export function authenticate(username: unknown, password: unknown, db = getDb()): { token: string; user: UserAccount } {
-  const u = String(username ?? '').trim().toLowerCase();
+export function authenticate(username: unknown, password: unknown, db = getDb(), legacyConversion = false): { token: string; user: UserAccount } {
+  const u = legacyConversion ? String(username ?? '').trim().toLowerCase() : requireCpf(username);
   const p = String(password ?? '');
   if (!u || !p) throw new Error('Informe usuário e senha.');
   const row = db.prepare('SELECT * FROM users WHERE LOWER(username) = ?').get(u) as UserRow | undefined;
-  if (!row || !verifyPassword(p, row.password_hash)) {
-    throw new Error('Usuário ou senha inválidos.');
+  if (!row || (legacyConversion && isValidCpf(row.username)) || !verifyPassword(p, row.password_hash)) {
+    throw new Error('CPF ou senha inválidos.');
   }
   const user = cleanUser(row)!;
   const now = Date.now();
@@ -488,28 +490,26 @@ export function saveUser(payload: Record<string, unknown>, db = getDb()): UserAc
     : undefined;
   if (editing && !existing) throw new Error('Usuário não encontrado.');
 
-  const username = String(payload.username ?? '').trim().toLowerCase().slice(0, 50);
+  const username = requireCpf(payload.cpf ?? payload.username);
   const name = String(payload.name ?? '').trim().slice(0, 80);
   const role: 'ops' | 'tech' = payload.role === 'tech' ? 'tech' : 'ops';
   const technicianId = role === 'tech' ? String(payload.technicianId ?? '').trim() || null : null;
   const password = String(payload.password ?? '').trim();
 
-  if (!username || !/^[a-z0-9._@-]{3,50}$/.test(username)) {
-    throw new Error('O login deve ter de 3 a 50 caracteres (letras, números, ponto, hífen ou @).');
-  }
   if (!name) throw new Error('Informe o nome do usuário.');
   if (role === 'tech' && !technicianId) {
     throw new Error('Vincule este usuário a um técnico cadastrado.');
   }
 
+  assertCpfAvailable(username, companyIdForDatabase(db) || 'root', existing?.id || '');
   const dup = db
     .prepare('SELECT id FROM users WHERE LOWER(username) = ? AND id != ?')
     .get(username, existing ? existing.id : '') as { id: string } | undefined;
-  if (dup) throw new Error('Já existe um usuário com este login.');
+  if (dup) throw new Error('Este CPF já possui um cadastro.');
 
   if (editing && existing) {
     const nextHash = password ? hashPassword(password) : existing.password_hash;
-    if (password && password.length < 4) throw new Error('A senha deve ter pelo menos 4 caracteres.');
+    if (password && password.length < 8) throw new Error('A senha deve ter pelo menos 8 caracteres.');
     db.prepare(`
       UPDATE users SET username = ?, name = ?, password_hash = ?, role = ?, technician_id = ?
       WHERE id = ?
@@ -518,8 +518,8 @@ export function saveUser(payload: Record<string, unknown>, db = getDb()): UserAc
     return cleanUser(updatedRow)!;
   }
 
-  if (!password || password.length < 4) {
-    throw new Error('Informe uma senha com pelo menos 4 caracteres.');
+  if (!password || password.length < 8) {
+    throw new Error('Informe uma senha com pelo menos 8 caracteres.');
   }
   const id = 'u-' + crypto.randomBytes(6).toString('hex');
   const now = Date.now();
@@ -537,7 +537,7 @@ export function syncTechnicianUser(
   password: unknown,
   db = getDb()
 ): UserAccount | null {
-  const cleanUsername = String(username ?? '').trim().toLowerCase();
+  const cleanUsername = String(username ?? '').trim() ? requireCpf(username) : '';
   const cleanPassword = String(password ?? '').trim();
   const existing = db.prepare('SELECT * FROM users WHERE technician_id = ?').get(technician.id) as UserRow | undefined;
 
@@ -559,7 +559,7 @@ export function syncTechnicianUser(
     );
   }
 
-  if (cleanPassword.length < 4) throw new Error('Informe uma senha de pelo menos 4 caracteres para criar o acesso do técnico.');
+  if (cleanPassword.length < 8) throw new Error('Informe uma senha de pelo menos 8 caracteres para criar o acesso do técnico.');
 
   return saveUser(
     {
