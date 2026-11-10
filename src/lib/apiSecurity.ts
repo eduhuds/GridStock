@@ -75,8 +75,10 @@ export function secureRoute<Context>(handler: (req: Request, context: Context) =
     state.gridstockQueue = new Promise<void>(resolve => { release = resolve; });
     await previous;
     try {
-      // The snapshot model is not safe across independent ephemeral instances.
-      if (process.env.VERCEL) return deny('Este armazenamento exige um servidor único com disco persistente. Migre o armazenamento antes de usar múltiplas instâncias.', 503);
+      const hasRemotePersistence =
+        process.env.GRIDSTOCK_DB !== ':memory:' &&
+        Boolean(process.env.NEXT_PUBLIC_SUPABASE_URL);
+      if (process.env.VERCEL && !hasRemotePersistence) return deny('Este armazenamento exige um servidor único com disco persistente. Migre o armazenamento antes de usar múltiplas instâncias.', 503);
       const master = url.pathname.startsWith('/api/admin/');
       const scope = request.headers.get('x-gridstock-company') || '';
       if (scope.length > 40) return deny('Empresa inválida.', 400);

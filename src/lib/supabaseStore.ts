@@ -1,3 +1,5 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import {
   isCompanyDatabase,
   companyIdForDatabase,
@@ -30,8 +32,30 @@ const TABLES = [
 let cachedClient: SupabaseClient | null = null;
 let initialSyncDone = false;
 
+function reloadDotEnvIfMissing() {
+  try {
+    const envPath = path.resolve(process.cwd(), '.env');
+    if (!fs.existsSync(envPath)) return;
+    const content = fs.readFileSync(envPath, 'utf8');
+    for (const line of content.split(/\r?\n/)) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#')) continue;
+      const eq = trimmed.indexOf('=');
+      if (eq <= 0) continue;
+      const k = trimmed.slice(0, eq).trim();
+      const v = trimmed.slice(eq + 1).trim().replace(/^['"]|['"]$/g, '');
+      if (k && v && (!process.env[k] || (k === 'GRIDSTOCK_ADMIN_USERNAME' && process.env[k] === 'admin'))) {
+        process.env[k] = v;
+      }
+    }
+  } catch {}
+}
+
 export function getSupabaseAdminClient(): SupabaseClient | null {
   if (process.env.GRIDSTOCK_DB === ':memory:') return null;
+  if (!process.env.SUPABASE_SERVICE_ROLE_KEY && !process.env.SUPABASE_SECRET_KEY) {
+    reloadDotEnvIfMissing();
+  }
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key =
     process.env.SUPABASE_SERVICE_ROLE_KEY ||
@@ -111,6 +135,7 @@ export async function pullPlatformFromSupabase(): Promise<void> {
     }
 
     const regSnap = exportPlatformRegistry();
+    const envAdminUser = (process.env.GRIDSTOCK_ADMIN_USERNAME || '').trim();
     if (!regSnap.masterAccount) {
       const { data: usersData } = await sb.from('users').select('*').throwOnError();
       if (usersData && usersData.length > 0) {
@@ -118,10 +143,20 @@ export async function pullPlatformFromSupabase(): Promise<void> {
           usersData.find(u => String(u.id) === (process.env.GRIDSTOCK_MASTER_USER_ID || 'u-admin'));
         if (owner) {
           importPlatformRegistry({
-            masterAccount: { username: owner.username, password_hash: owner.password_hash },
+            masterAccount: {
+              username: owner.username === 'admin' && envAdminUser ? envAdminUser : owner.username,
+              password_hash: owner.password_hash,
+            },
           });
         }
       }
+    } else if (regSnap.masterAccount.username === 'admin' && envAdminUser && envAdminUser !== 'admin') {
+      importPlatformRegistry({
+        masterAccount: {
+          username: envAdminUser,
+          password_hash: regSnap.masterAccount.password_hash,
+        },
+      });
     }
   } catch {
     throw new Error('Não foi possível validar os dados remotos. Tente novamente.');
@@ -287,10 +322,16 @@ export async function ensureSupabaseSynced(db: DatabaseSync, forcePull = false):
           INSERT INTO users (id, username, name, password_hash, role, technician_id, created_at)
           VALUES (?, ?, ?, ?, ?, ?, ?)
         `);
+        const masterUserId = process.env.GRIDSTOCK_MASTER_USER_ID || 'u-admin';
+        const envAdminUser = (process.env.GRIDSTOCK_ADMIN_USERNAME || '').trim();
         for (const u of usersRes.data) {
+          const uname =
+            String(u.id) === masterUserId && String(u.username) === 'admin' && envAdminUser
+              ? envAdminUser
+              : String(u.username);
           insUser.run(
             String(u.id),
-            String(u.username),
+            uname,
             String(u.name),
             String(u.password_hash),
             String(u.role),
