@@ -1,7 +1,7 @@
 import { secureRoute } from '@/lib/apiSecurity';
 import { databaseForRequest, configForRequest } from '@/lib/companies';
 import { NextResponse } from 'next/server';
-import { stateForUser, getUserFromRequest, listUsers, loadState } from '@/lib/db';
+import { stateForUser, getUserFromRequest, listUsers, loadState, listCompanyAudit } from '@/lib/db';
 import { ensureSupabaseSynced, pullPlatformFromSupabase } from '@/lib/supabaseStore';
 
 export const dynamic = 'force-dynamic';
@@ -17,7 +17,8 @@ async function handleGET(req: Request) {
     }
     const state = loadState(db);
     const users = user.role === 'ops' ? listUsers(db) : [];
-    return NextResponse.json({ user, state: stateForUser(state, user), users, config: configForRequest(req) });
+    const audit = user.role === 'ops' ? listCompanyAudit(db, state) : [];
+    return NextResponse.json({ user, state: stateForUser(state, user), users, audit, config: configForRequest(req) });
   } catch { return NextResponse.json({ error: 'Empresa indisponível ou sessão inválida.' }, { status: 401 }); }
 }
 

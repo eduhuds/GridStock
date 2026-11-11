@@ -1,7 +1,7 @@
 import { secureRoute } from '@/lib/apiSecurity';
 import { databaseForRequest, enforceCompanyAction } from '@/lib/companies';
 import { NextResponse } from 'next/server';
-import { getUserFromRequest, listUsers, loadState, saveState } from '@/lib/db';
+import { getUserFromRequest, listUsers, loadState, saveState, recordCompanyAudit, listCompanyAudit } from '@/lib/db';
 import { deleteTechnician } from '@/lib/domain';
 import { ensureSupabaseSynced, pullPlatformFromSupabase, pushAllToSupabase } from '@/lib/supabaseStore';
 
@@ -20,6 +20,7 @@ async function handleDELETE(req: Request, context: { params: Promise<{ id: strin
     const { id } = await context.params;
     const decodedId = decodeURIComponent(id);
     const state = loadState(db);
+    const targetTech = state.technicians.find(t => t.id === decodedId);
     deleteTechnician(state, decodedId);
 
     const linkedUser = db.prepare('SELECT id FROM users WHERE technician_id = ?').get(decodedId) as { id: string } | undefined;
@@ -28,8 +29,17 @@ async function handleDELETE(req: Request, context: { params: Promise<{ id: strin
       db.prepare('DELETE FROM users WHERE id = ?').run(linkedUser.id);
     }
     saveState(db, state);
+    recordCompanyAudit(db, {
+      actorName: user.name,
+      actorUsername: user.username,
+      actorRole: user.role,
+      category: 'technician',
+      action: 'Técnico excluído',
+      target: targetTech ? `${targetTech.name} (${targetTech.vehicle})` : decodedId,
+      detail: 'Cadastro de campo e credencial vinculada removidos',
+    });
     await pushAllToSupabase(db);
-    return NextResponse.json({ state, users: listUsers(db) });
+    return NextResponse.json({ state, users: listUsers(db), audit: listCompanyAudit(db, state) });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Erro ao excluir técnico.';
     return NextResponse.json({ error: message }, { status: 400 });

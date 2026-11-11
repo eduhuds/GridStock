@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS public.app_meta (
 
 CREATE TABLE IF NOT EXISTS public.warehouses (
   id TEXT PRIMARY KEY,
+  company_id TEXT NOT NULL DEFAULT 'default',
   code TEXT UNIQUE NOT NULL,
   name TEXT NOT NULL,
   city TEXT NOT NULL,
@@ -39,17 +40,21 @@ CREATE TABLE IF NOT EXISTS public.warehouses (
 
 CREATE TABLE IF NOT EXISTS public.products (
   id TEXT PRIMARY KEY,
+  company_id TEXT NOT NULL DEFAULT 'default',
   sku TEXT UNIQUE NOT NULL,
   name TEXT NOT NULL,
   category TEXT NOT NULL,
   unit TEXT NOT NULL DEFAULT 'un.',
   min INTEGER NOT NULL DEFAULT 0,
   base_min INTEGER NOT NULL DEFAULT 0,
+  unit_cost NUMERIC(12, 2) NOT NULL DEFAULT 0,
+  supplier TEXT NOT NULL DEFAULT '',
   sort_order INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS public.technicians (
   id TEXT PRIMARY KEY,
+  company_id TEXT NOT NULL DEFAULT 'default',
   name TEXT NOT NULL,
   initials TEXT NOT NULL,
   color TEXT NOT NULL DEFAULT 'mint',
@@ -66,6 +71,7 @@ CREATE TABLE IF NOT EXISTS public.technicians (
 CREATE TABLE IF NOT EXISTS public.product_locations (
   warehouse_id TEXT NOT NULL,
   product_id TEXT NOT NULL,
+  company_id TEXT NOT NULL DEFAULT 'default',
   corridor TEXT NOT NULL,
   shelf TEXT NOT NULL,
   PRIMARY KEY (warehouse_id, product_id)
@@ -74,12 +80,14 @@ CREATE TABLE IF NOT EXISTS public.product_locations (
 CREATE TABLE IF NOT EXISTS public.stock_balances (
   location_id TEXT NOT NULL,
   product_id TEXT NOT NULL,
+  company_id TEXT NOT NULL DEFAULT 'default',
   qty INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (location_id, product_id)
 );
 
 CREATE TABLE IF NOT EXISTS public.movements (
   id TEXT PRIMARY KEY,
+  company_id TEXT NOT NULL DEFAULT 'default',
   seq_num INTEGER NOT NULL,
   kind TEXT NOT NULL,
   technician_id TEXT,
@@ -96,6 +104,8 @@ CREATE TABLE IF NOT EXISTS public.movements (
   operator TEXT,
   before_qty INTEGER,
   delta INTEGER,
+  serial TEXT,
+  photo TEXT,
   ts BIGINT NOT NULL
 );
 

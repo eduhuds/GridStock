@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
-import { authenticate, createDatabase, getDb, hashPassword, verifyPassword, saveUser, loadState, saveState, getUserFromRequest } from './db';
+import { authenticate, createDatabase, ensureSchemaMigrations, getDb, hashPassword, verifyPassword, saveUser, loadState, saveState, getUserFromRequest } from './db';
 import { emptyState, type GridStockState } from './domain';
 
 export interface Company {
@@ -60,7 +60,9 @@ function companyDb(company: Company) {
     const db = createDatabase(root === ':memory:' ? ':memory:' : path.join(dir, `${company.id}.db`), false);
     cache.companyDbs!.set(company.id, db);
   }
-  return cache.companyDbs!.get(company.id)!;
+  const db = cache.companyDbs!.get(company.id)!;
+  ensureSchemaMigrations(db);
+  return db;
 }
 export function databaseForRequest(req: Request) {
   const slug = req.headers.get('x-gridstock-company');
@@ -236,6 +238,7 @@ export interface CompanyDbSnapshot {
   users: Record<string, unknown>[];
   sessions: Record<string, unknown>[];
   state: GridStockState;
+  companyAudit?: Record<string, unknown>[];
 }
 
 export function exportPlatformRegistry(): PlatformRegistrySnapshot {
@@ -314,6 +317,7 @@ export function exportCompanySnapshot(companyId: string): CompanyDbSnapshot | nu
     users: tenantDb.prepare('SELECT * FROM users').all() as Record<string, unknown>[],
     sessions: tenantDb.prepare('SELECT * FROM sessions').all() as Record<string, unknown>[],
     state: loadState(tenantDb),
+    companyAudit: tenantDb.prepare('SELECT * FROM company_audit ORDER BY id ASC').all() as Record<string, unknown>[],
   };
 }
 
@@ -347,6 +351,25 @@ export function importCompanySnapshot(companyId: string, snapshot: CompanyDbSnap
       );
       for (const s of snapshot.sessions) {
         insS.run(String(s.token), String(s.user_id), Number(s.created_at), Number(s.expires_at));
+      }
+    }
+    if (Array.isArray(snapshot.companyAudit)) {
+      tenantDb.exec('DELETE FROM company_audit');
+      const insA = tenantDb.prepare(
+        'INSERT OR REPLACE INTO company_audit (id, actor_name, actor_username, actor_role, category, action, target, detail, ts) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+      );
+      for (const a of snapshot.companyAudit) {
+        insA.run(
+          Number(a.id),
+          String(a.actor_name || 'Sistema'),
+          String(a.actor_username || ''),
+          String(a.actor_role || 'ops'),
+          String(a.category || 'system'),
+          String(a.action || ''),
+          String(a.target || ''),
+          String(a.detail || ''),
+          Number(a.ts || Date.now())
+        );
       }
     }
     tenantDb.exec('COMMIT');

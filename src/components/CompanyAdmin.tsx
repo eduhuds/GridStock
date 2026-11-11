@@ -2,6 +2,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { defaultConfig, businessPreset, businessLabels, type BusinessType } from '@/lib/companyConfig';
 import type { Company } from '@/lib/companies';
+import ThemeToggle from './ThemeToggle';
 const KEY = 'gridstock-master-token';
 const blank = { id: '', name: '', slug: '', tagline: '', color: '#285d48', active: true, username: '', password: '', adminName: '', config: { ...defaultConfig } };
 export default function CompanyAdmin() {
@@ -96,7 +97,7 @@ export default function CompanyAdmin() {
   if (!ready) return <main className="company-admin"><p role="status">Carregando administração...</p></main>;
   if (!token) return <main className="master-login">
     <section className="master-intro"><img src="/gridstock-mark.svg" alt="" width="56" height="56" /><span className="eyebrow">GRIDSTOCK · ADMINISTRAÇÃO</span><h1>Um sistema.<br /><em>Muitas empresas.</em></h1><p>Organize seus clientes, personalize cada operação e gerencie os acessos em um só lugar.</p><a href="/">← Voltar ao sistema</a></section>
-    <form className="master-login-form" onSubmit={login}><span className="page-eyebrow">ACESSO EXCLUSIVO</span><h2>Central de Administração</h2><p className="muted">Um único acesso de administrador para gerenciar a plataforma e todas as empresas.</p>{error && <p className="error" role="alert">{error}</p>}
+    <form className="master-login-form" onSubmit={login}><div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}><span className="page-eyebrow" style={{ marginBottom: 0 }}>ACESSO EXCLUSIVO</span><ThemeToggle showLabel /></div><h2>Central de Administração</h2><p className="muted">Um único acesso de administrador para gerenciar a plataforma e todas as empresas.</p>{error && <p className="error" role="alert">{error}</p>}
       {convertingCpf && <label className="field">Login anterior<input className="input" name="legacyUsername" autoComplete="username" required /><small>Confirme sua senha atual e cadastre seu CPF verdadeiro. Nenhum dado será apagado.</small></label>}
       <label className="field">CPF<input className="input" name="cpf" inputMode="numeric" maxLength={14} placeholder="000.000.000-00" autoComplete="username" required /></label>
       <label className="field">Senha<input className="input" name="password" type="password" autoComplete="current-password" required /></label>
@@ -105,7 +106,7 @@ export default function CompanyAdmin() {
   const filtered = companies.filter(c => `${c.name} ${c.slug}`.toLowerCase().includes(query.toLowerCase()));
   const totals = companies.reduce((sum, c) => ({ users: sum.users + (c.usage?.users || 0), products: sum.products + (c.usage?.products || 0), warehouses: sum.warehouses + (c.usage?.warehouses || 0) }), { users: 0, products: 0, warehouses: 0 });
   return <main className="company-admin">
-    <header className="company-top"><a href="/administracao" className="brand"><img src="/gridstock-mark.svg" width="36" height="36" alt="" />GRIDSTOCK</a><span>Central de Administração<small className="cell-sub">{administrator?.username} · Administrador do sistema</small></span><button className="button secondary" onClick={logout} disabled={busy}>Sair</button></header>
+    <header className="company-top"><a href="/administracao" className="brand"><img src="/gridstock-mark.svg" width="36" height="36" alt="" />GRIDSTOCK</a><span>Central de Administração<small className="cell-sub">{administrator?.username} · Administrador do sistema</small></span><ThemeToggle /><button className="button secondary" onClick={logout} disabled={busy}>Sair</button></header>
     <nav className="admin-navigation" aria-label="Seções da administração">{([['overview','Visão geral'],['companies','Empresas e módulos'],['activity','Histórico de ações'],['account','Minha conta']] as const).map(([id,label]) => <button key={id} type="button" aria-current={section === id ? 'page' : undefined} className={`button ${section === id ? '' : 'secondary'}`} onClick={() => navigate(id)}>{label}</button>)}<button className="text-link" onClick={refresh} disabled={busy}>{busy ? 'Atualizando…' : 'Atualizar dados'}</button></nav>
     <section className="company-hero"><div><span className="page-eyebrow">CONTROLE DA PLATAFORMA</span><h1>{({overview: 'Sua central de controle.', companies: 'Empresas e módulos', activity: 'Histórico de ações', account: 'Minha conta de administrador'})[section]}</h1><p>{updatedAt ? `Dados consultados às ${updatedAt.toLocaleTimeString('pt-BR')}.` : 'Gerencie a plataforma em um único acesso.'}</p></div><button className="button" onClick={() => { setSection('companies'); setForm(blank); setEditing(true); setError(''); setNotice(''); }}>+ Cadastrar empresa</button></section>
     {section === 'overview' && <>

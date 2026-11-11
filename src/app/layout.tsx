@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from 'next';
 import './globals.css';
+import LegalAccessibilityHub from '@/components/LegalAccessibilityHub';
 
 export const metadata: Metadata = {
   title: 'GRIDSTOCK — Estoque em movimento',
@@ -19,7 +20,10 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="pt-BR">
-      <body>{children}</body>
+      <body>
+        {children}
+        <LegalAccessibilityHub />
+      </body>
     </html>
   );
 }

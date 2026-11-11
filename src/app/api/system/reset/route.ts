@@ -1,7 +1,7 @@
 import { secureRoute } from '@/lib/apiSecurity';
 import { databaseForRequest, enforceCompanyAction } from '@/lib/companies';
 import { NextResponse } from 'next/server';
-import { getUserFromRequest, listUsers, loadState, saveState, syncTechnicianUser } from '@/lib/db';
+import { getUserFromRequest, listUsers, loadState, saveState, syncTechnicianUser, recordCompanyAudit, listCompanyAudit } from '@/lib/db';
 import { emptyState, seed } from '@/lib/domain';
 import { ensureSupabaseSynced, pullPlatformFromSupabase, pushAllToSupabase } from '@/lib/supabaseStore';
 
@@ -16,7 +16,6 @@ async function handlePOST(req: Request) {
     if (!user) return NextResponse.json({ error: 'Não autenticado.' }, { status: 401 });
     if (user.role !== 'ops') return NextResponse.json({ error: 'Acesso restrito ao Controle Operacional.' }, { status: 403 });
 
-    if (req.headers.has('x-gridstock-company')) return NextResponse.json({ error: 'Solicite a redefinição ao administrador da plataforma.' }, { status: 403 });
     const body = await req.json();
     if (!['seed', 'empty'].includes(body.mode)) return NextResponse.json({ error: 'Modo inválido.' }, { status: 400 });
     enforceCompanyAction(req, 'reset', body);
@@ -42,8 +41,22 @@ async function handlePOST(req: Request) {
       }
     }
 
+    recordCompanyAudit(db, {
+      actorName: user.name,
+      actorUsername: user.username,
+      actorRole: user.role,
+      category: 'system',
+      action: body.mode === 'seed' ? 'Base de exemplo carregada' : 'Banco de dados zerado (teste)',
+      target: 'Banco de dados da empresa',
+      detail:
+        body.mode === 'seed'
+          ? 'Estoques, produtos e técnicos de demonstração restaurados'
+          : 'Estoques, produtos, técnicos e movimentações foram limpos',
+    });
+
     await pushAllToSupabase(db);
-    return NextResponse.json({ state: loadState(db), users: listUsers(db) });
+    const finalState = loadState(db);
+    return NextResponse.json({ state: finalState, users: listUsers(db), audit: listCompanyAudit(db, finalState) });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Erro ao redefinir banco de dados.';
     return NextResponse.json({ error: message }, { status: 400 });

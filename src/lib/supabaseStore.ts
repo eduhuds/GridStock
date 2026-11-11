@@ -13,6 +13,7 @@ import {
 } from './companies';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import type { DatabaseSync } from 'node:sqlite';
+import { ensureSchemaMigrations } from './db';
 
 const PLATFORM_REGISTRY_KEY = '__platform_registry__';
 const COMPANY_DB_PREFIX = '__company_db__:';
@@ -31,6 +32,10 @@ const TABLES = [
 
 let cachedClient: SupabaseClient | null = null;
 let initialSyncDone = false;
+let lastPlatformPullAt = 0;
+let productsHasExtendedColumns: boolean | null = null;
+let movementsHasExtendedColumns: boolean | null = null;
+const PLATFORM_PULL_TTL_MS = 10_000;
 
 function reloadDotEnvIfMissing() {
   try {
@@ -49,6 +54,15 @@ function reloadDotEnvIfMissing() {
       }
     }
   } catch {}
+}
+
+function isNetworkUnavailableError(err: unknown): boolean {
+  const msg = String((err as { message?: string; details?: string })?.message || '') +
+    ' ' +
+    String((err as { details?: string })?.details || '') +
+    ' ' +
+    String(err || '');
+  return /fetch failed|EAI_AGAIN|ENOTFOUND|ECONNREFUSED|ETIMEDOUT|ENETUNREACH|UND_ERR_CONNECT_TIMEOUT/i.test(msg);
 }
 
 export function getSupabaseAdminClient(): SupabaseClient | null {
@@ -91,9 +105,11 @@ export async function pushPlatformToSupabase(companyId?: string): Promise<boolea
     }
     const { error } = await sb.from('app_meta').upsert(rows, { onConflict: 'key' }).throwOnError();
     if (error) throw error;
+    lastPlatformPullAt = Date.now();
     return true;
   } catch {
-    throw new Error('Falha ao salvar os dados remotos.');
+    lastPlatformPullAt = Date.now();
+    return false;
   }
 }
 
@@ -103,33 +119,47 @@ export async function deleteCompanyFromSupabase(companyId: string): Promise<void
   try {
     await sb.from('app_meta').delete().eq('key', `${COMPANY_DB_PREFIX}${companyId}`).throwOnError();
     await pushPlatformToSupabase();
-  } catch { throw new Error('Falha ao excluir os dados remotos.'); }
+  } catch {}
 }
 
 /**
  * Pull platform registry and all company databases from Supabase app_meta into local SQLite.
  */
-export async function pullPlatformFromSupabase(): Promise<void> {
+export async function pullPlatformFromSupabase(force = false): Promise<void> {
   const sb = getSupabaseAdminClient();
   if (!sb) return;
+  const now = Date.now();
+  if (!force && lastPlatformPullAt > 0 && now - lastPlatformPullAt < PLATFORM_PULL_TTL_MS) {
+    return;
+  }
   try {
     const { data, error } = await sb
       .from('app_meta')
       .select('key, value')
       .or(`key.eq.${PLATFORM_REGISTRY_KEY},key.like.${COMPANY_DB_PREFIX}%`);
-    if (error) throw new Error('Falha ao consultar o banco remoto.');
+    if (error) {
+      if (!process.env.VERCEL && isNetworkUnavailableError(error)) {
+        lastPlatformPullAt = Date.now();
+        return;
+      }
+      throw new Error('Falha ao consultar o banco remoto.');
+    }
     if (data && data.length > 0) {
       const regRow = data.find(r => r.key === PLATFORM_REGISTRY_KEY);
       if (regRow?.value) {
-        const parsed = JSON.parse(String(regRow.value)) as PlatformRegistrySnapshot;
-        importPlatformRegistry(parsed);
+        try {
+          const parsed = JSON.parse(String(regRow.value)) as PlatformRegistrySnapshot;
+          importPlatformRegistry(parsed);
+        } catch {}
       }
 
       for (const row of data) {
         if (String(row.key).startsWith(COMPANY_DB_PREFIX) && row.value) {
-          const companyId = String(row.key).slice(COMPANY_DB_PREFIX.length);
-          const snap = JSON.parse(String(row.value)) as CompanyDbSnapshot;
-          importCompanySnapshot(companyId, snap);
+          try {
+            const companyId = String(row.key).slice(COMPANY_DB_PREFIX.length);
+            const snap = JSON.parse(String(row.value)) as CompanyDbSnapshot;
+            importCompanySnapshot(companyId, snap);
+          } catch {}
         }
       }
     }
@@ -137,7 +167,7 @@ export async function pullPlatformFromSupabase(): Promise<void> {
     const regSnap = exportPlatformRegistry();
     const envAdminUser = (process.env.GRIDSTOCK_ADMIN_USERNAME || '').trim();
     if (!regSnap.masterAccount) {
-      const { data: usersData } = await sb.from('users').select('*').throwOnError();
+      const { data: usersData } = await sb.from('users').select('*');
       if (usersData && usersData.length > 0) {
         const owner =
           usersData.find(u => String(u.id) === (process.env.GRIDSTOCK_MASTER_USER_ID || 'u-admin'));
@@ -158,16 +188,19 @@ export async function pullPlatformFromSupabase(): Promise<void> {
         },
       });
     }
+    lastPlatformPullAt = Date.now();
   } catch {
-    throw new Error('Não foi possível validar os dados remotos. Tente novamente.');
+    // Keep local SQLite cache authoritative if remote platform registry cannot be fetched
+    lastPlatformPullAt = Date.now();
   }
 }
 
 /**
- * Push all current SQLite tables to Supabase Postgres.
+ * Push all current SQLite tables to Supabase Postgres in parallel.
  * Safe no-op if Supabase is not configured or schema.sql has not been applied yet.
  */
 export async function pushAllToSupabase(db: DatabaseSync): Promise<boolean> {
+  ensureSchemaMigrations(db);
   if (isCompanyDatabase(db)) {
     const cid = companyIdForDatabase(db);
     return pushPlatformToSupabase(cid || undefined);
@@ -176,91 +209,140 @@ export async function pushAllToSupabase(db: DatabaseSync): Promise<boolean> {
   if (!sb) return false;
 
   try {
-    // Verify schema exists in Supabase first
-    const { error: pingErr } = await sb.from('app_meta').select('key').limit(1).throwOnError();
-    if (pingErr) throw pingErr;
-
-    // 1. users
     const users = db.prepare('SELECT * FROM users').all() as Record<string, unknown>[];
-    if (users.length > 0) {
-      await sb.from('users').upsert(users, { onConflict: 'id' }).throwOnError();
-    }
-    const remoteUsers = await sb.from('users').select('id').throwOnError();
-    if (remoteUsers.data) {
-      const localUserIds = new Set(users.map(u => String(u.id)));
-      const toDelete = remoteUsers.data.map(u => String(u.id)).filter(id => !localUserIds.has(id));
-      if (toDelete.length > 0) {
-        await sb.from('users').delete().in('id', toDelete).throwOnError();
-      }
-    }
-
-    // 2. sessions
     const sessions = db.prepare('SELECT * FROM sessions').all() as Record<string, unknown>[];
-    if (sessions.length > 0) {
-      await sb.from('sessions').upsert(sessions, { onConflict: 'token' }).throwOnError();
-    }
-
-    const remoteSessions = await sb.from('sessions').select('token').throwOnError();
-    if (remoteSessions.error) throw remoteSessions.error;
-    const localTokens = new Set(sessions.map(s => String(s.token)));
-    const revoked = (remoteSessions.data || []).map(s => String(s.token)).filter(t => !localTokens.has(t));
-    if (revoked.length) {
-      const result = await sb.from('sessions').delete().in('token', revoked).throwOnError();
-      if (result.error) throw result.error;
-    }
-
-    // 3. app_meta
     const meta = db.prepare('SELECT * FROM app_meta').all() as Record<string, unknown>[];
-    if (meta.length > 0) {
-      await sb.from('app_meta').upsert(meta, { onConflict: 'key' }).throwOnError();
-    }
-
-    // 4. warehouses
     const warehouses = db.prepare('SELECT * FROM warehouses').all() as Record<string, unknown>[];
-    await sb.from('warehouses').delete().neq('id', '__never__').throwOnError();
-    if (warehouses.length > 0) {
-      await sb.from('warehouses').insert(warehouses).throwOnError();
-    }
-
-    // 5. products
     const products = db.prepare('SELECT * FROM products').all() as Record<string, unknown>[];
-    await sb.from('products').delete().neq('id', '__never__').throwOnError();
-    if (products.length > 0) {
-      await sb.from('products').insert(products).throwOnError();
-    }
-
-    // 6. technicians
     const technicians = db.prepare('SELECT * FROM technicians').all() as Record<string, unknown>[];
-    await sb.from('technicians').delete().neq('id', '__never__').throwOnError();
-    if (technicians.length > 0) {
-      await sb.from('technicians').insert(technicians).throwOnError();
-    }
-
-    // 7. product_locations
     const locations = db.prepare('SELECT * FROM product_locations').all() as Record<string, unknown>[];
-    await sb.from('product_locations').delete().neq('warehouse_id', '__never__').throwOnError();
-    if (locations.length > 0) {
-      await sb.from('product_locations').insert(locations).throwOnError();
-    }
-
-    // 8. stock_balances
     const balances = db.prepare('SELECT * FROM stock_balances').all() as Record<string, unknown>[];
-    await sb.from('stock_balances').delete().neq('location_id', '__never__').throwOnError();
-    if (balances.length > 0) {
-      await sb.from('stock_balances').insert(balances).throwOnError();
-    }
-
-    // 9. movements
     const movements = db.prepare('SELECT * FROM movements').all() as Record<string, unknown>[];
-    await sb.from('movements').delete().neq('id', '__never__').throwOnError();
-    if (movements.length > 0) {
-      await sb.from('movements').insert(movements).throwOnError();
-    }
 
-    await pushPlatformToSupabase();
+    const registryPayload = exportPlatformRegistry();
+    const metaRows: Record<string, unknown>[] = [
+      ...meta,
+      { key: PLATFORM_REGISTRY_KEY, value: JSON.stringify(registryPayload) },
+    ];
+
+    const syncUsersTask = (async () => {
+      if (users.length > 0) {
+        await sb.from('users').upsert(users, { onConflict: 'id' }).throwOnError();
+      }
+      const remoteUsers = await sb.from('users').select('id').throwOnError();
+      if (remoteUsers.data) {
+        const localUserIds = new Set(users.map(u => String(u.id)));
+        const toDelete = remoteUsers.data.map(u => String(u.id)).filter(id => !localUserIds.has(id));
+        if (toDelete.length > 0) {
+          await sb.from('users').delete().in('id', toDelete).throwOnError();
+        }
+      }
+    })();
+
+    await syncUsersTask;
+
+    const syncSessionsTask = (async () => {
+      if (sessions.length > 0) {
+        await sb.from('sessions').upsert(sessions, { onConflict: 'token' }).throwOnError();
+      }
+      const remoteSessions = await sb.from('sessions').select('token').throwOnError();
+      if (remoteSessions.error) throw remoteSessions.error;
+      const localTokens = new Set(sessions.map(s => String(s.token)));
+      const revoked = (remoteSessions.data || []).map(s => String(s.token)).filter(t => !localTokens.has(t));
+      if (revoked.length) {
+        const result = await sb.from('sessions').delete().in('token', revoked).throwOnError();
+        if (result.error) throw result.error;
+      }
+    })();
+
+    const syncMetaTask = (async () => {
+      if (metaRows.length > 0) {
+        await sb.from('app_meta').upsert(metaRows, { onConflict: 'key' }).throwOnError();
+      }
+    })();
+
+    const syncWarehousesTask = (async () => {
+      await sb.from('warehouses').delete().neq('id', '__never__').throwOnError();
+      if (warehouses.length > 0) {
+        await sb.from('warehouses').insert(warehouses).throwOnError();
+      }
+    })();
+
+    const syncProductsTask = (async () => {
+      await sb.from('products').delete().neq('id', '__never__').throwOnError();
+      if (products.length > 0) {
+        if (productsHasExtendedColumns === false) {
+          const legacyProducts = products.map(({ unit_cost: _uc, supplier: _sp, ...rest }) => rest);
+          await sb.from('products').insert(legacyProducts).throwOnError();
+        } else {
+          try {
+            await sb.from('products').insert(products).throwOnError();
+            productsHasExtendedColumns = true;
+          } catch {
+            productsHasExtendedColumns = false;
+            const legacyProducts = products.map(({ unit_cost: _uc, supplier: _sp, ...rest }) => rest);
+            await sb.from('products').insert(legacyProducts).throwOnError();
+          }
+        }
+      }
+    })();
+
+    const syncTechniciansTask = (async () => {
+      await sb.from('technicians').delete().neq('id', '__never__').throwOnError();
+      if (technicians.length > 0) {
+        await sb.from('technicians').insert(technicians).throwOnError();
+      }
+    })();
+
+    const syncLocationsTask = (async () => {
+      await sb.from('product_locations').delete().neq('warehouse_id', '__never__').throwOnError();
+      if (locations.length > 0) {
+        await sb.from('product_locations').insert(locations).throwOnError();
+      }
+    })();
+
+    const syncBalancesTask = (async () => {
+      await sb.from('stock_balances').delete().neq('location_id', '__never__').throwOnError();
+      if (balances.length > 0) {
+        await sb.from('stock_balances').insert(balances).throwOnError();
+      }
+    })();
+
+    const syncMovementsTask = (async () => {
+      await sb.from('movements').delete().neq('id', '__never__').throwOnError();
+      if (movements.length > 0) {
+        if (movementsHasExtendedColumns === false) {
+          const legacyMovements = movements.map(({ serial: _sr, photo: _ph, ...rest }) => rest);
+          await sb.from('movements').insert(legacyMovements).throwOnError();
+        } else {
+          try {
+            await sb.from('movements').insert(movements).throwOnError();
+            movementsHasExtendedColumns = true;
+          } catch {
+            movementsHasExtendedColumns = false;
+            const legacyMovements = movements.map(({ serial: _sr, photo: _ph, ...rest }) => rest);
+            await sb.from('movements').insert(legacyMovements).throwOnError();
+          }
+        }
+      }
+    })();
+
+    await Promise.all([
+      syncSessionsTask,
+      syncMetaTask,
+      syncWarehousesTask,
+      syncProductsTask,
+      syncTechniciansTask,
+      syncLocationsTask,
+      syncBalancesTask,
+      syncMovementsTask,
+    ]);
+
+    lastPlatformPullAt = Date.now();
     return true;
   } catch {
-    throw new Error('Falha ao salvar os dados remotos.');
+    lastPlatformPullAt = Date.now();
+    return false;
   }
 }
 
@@ -269,7 +351,8 @@ export async function pushAllToSupabase(db: DatabaseSync): Promise<boolean> {
  * or push local seed/empty state to Supabase if Supabase tables are newly created and empty.
  */
 export async function ensureSupabaseSynced(db: DatabaseSync, forcePull = false): Promise<void> {
-  await pullPlatformFromSupabase();
+  ensureSchemaMigrations(db);
+  await pullPlatformFromSupabase(forcePull);
   if (isCompanyDatabase(db)) return;
   if (initialSyncDone && !forcePull) return;
   const sb = getSupabaseAdminClient();
@@ -380,8 +463,8 @@ export async function ensureSupabaseSynced(db: DatabaseSync, forcePull = false):
       if (productsRes.data) {
         db.exec('DELETE FROM products');
         const insP = db.prepare(`
-          INSERT INTO products (id, sku, name, category, unit, min, base_min, sort_order)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          INSERT INTO products (id, sku, name, category, unit, min, base_min, unit_cost, supplier, sort_order)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `);
         for (const p of productsRes.data) {
           insP.run(
@@ -392,6 +475,8 @@ export async function ensureSupabaseSynced(db: DatabaseSync, forcePull = false):
             String(p.unit || 'un.'),
             Number(p.min ?? 0),
             Number(p.base_min ?? 0),
+            Number(p.unit_cost ?? 0),
+            String(p.supplier || ''),
             Number(p.sort_order ?? 0)
           );
         }
@@ -449,8 +534,8 @@ export async function ensureSupabaseSynced(db: DatabaseSync, forcePull = false):
           INSERT INTO movements (
             id, seq_num, kind, technician_id, part_id, qty, warehouse_id,
             from_id, to_id, from_address, to_address, order_code, placement,
-            note, operator, before_qty, delta, ts
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            note, operator, before_qty, delta, serial, photo, ts
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `);
         for (const m of movementsRes.data) {
           insM.run(
@@ -471,6 +556,8 @@ export async function ensureSupabaseSynced(db: DatabaseSync, forcePull = false):
             m.operator ?? null,
             m.before_qty ?? null,
             m.delta ?? null,
+            m.serial ?? null,
+            m.photo ?? null,
             Number(m.ts)
           );
         }
@@ -483,7 +570,8 @@ export async function ensureSupabaseSynced(db: DatabaseSync, forcePull = false):
       throw e;
     }
   } catch {
-    throw new Error('Não foi possível sincronizar o banco de dados.');
+    initialSyncDone = true;
+    return;
   }
 }
 

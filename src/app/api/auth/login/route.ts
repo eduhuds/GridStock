@@ -2,7 +2,7 @@ import { secureRoute } from '@/lib/apiSecurity';
 import { requireCpf } from '@/lib/cpf';
 import { authenticateCompanyFallback, configForRequest, databaseForRequest, enforceCompanyAction } from '@/lib/companies';
 import { NextResponse } from 'next/server';
-import { authenticate, stateForUser, listUsers, loadState } from '@/lib/db';
+import { authenticate, stateForUser, listUsers, loadState, recordCompanyAudit, listCompanyAudit } from '@/lib/db';
 import { ensureSupabaseSynced, pullPlatformFromSupabase, pushAllToSupabase } from '@/lib/supabaseStore';
 
 export const dynamic = 'force-dynamic';
@@ -10,14 +10,25 @@ export const dynamic = 'force-dynamic';
 async function respondWithCompanyMatches(matches: ReturnType<typeof authenticateCompanyFallback>) {
   if (matches.length === 1) {
     const companyMatch = matches[0];
+    recordCompanyAudit(companyMatch.db, {
+      actorName: companyMatch.user.name,
+      actorUsername: companyMatch.user.username,
+      actorRole: companyMatch.user.role,
+      category: 'auth',
+      action: 'Login realizado',
+      target: companyMatch.user.name,
+      detail: `Sessão autenticada (${companyMatch.user.role === 'ops' ? 'Controle Operacional' : 'Técnico em campo'})`,
+    });
     await pushAllToSupabase(companyMatch.db);
     const cState = loadState(companyMatch.db);
     const cUsers = companyMatch.user.role === 'ops' ? listUsers(companyMatch.db) : [];
+    const cAudit = companyMatch.user.role === 'ops' ? listCompanyAudit(companyMatch.db, cState) : [];
     return NextResponse.json({
       token: companyMatch.token,
       user: companyMatch.user,
       state: stateForUser(cState, companyMatch.user),
       users: cUsers,
+      audit: cAudit,
       config: companyMatch.company.config,
       companySlug: companyMatch.company.slug,
     });
@@ -50,10 +61,20 @@ async function handlePOST(req: Request) {
         }
         return NextResponse.json({ error: 'Use a página de acesso correspondente ao seu perfil.' }, { status: 403 });
       }
+      recordCompanyAudit(db, {
+        actorName: user.name,
+        actorUsername: user.username,
+        actorRole: user.role,
+        category: 'auth',
+        action: 'Login realizado',
+        target: user.name,
+        detail: `Sessão autenticada (${user.role === 'ops' ? 'Controle Operacional' : 'Técnico em campo'})`,
+      });
       await pushAllToSupabase(db);
       const state = loadState(db);
       const users = user.role === 'ops' ? listUsers(db) : [];
-      return NextResponse.json({ token, user, state: stateForUser(state, user), users, config: configForRequest(req) });
+      const audit = user.role === 'ops' ? listCompanyAudit(db, state) : [];
+      return NextResponse.json({ token, user, state: stateForUser(state, user), users, audit, config: configForRequest(req) });
     } catch (authErr) {
       if (!hasCompanyHeader) {
         const matches = authenticateCompanyFallback(body.username, body.password, body.role);

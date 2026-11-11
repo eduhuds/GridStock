@@ -31,6 +31,27 @@ export interface UserAccount {
   createdAt: number;
 }
 
+export type AuditCategory =
+  | 'auth'
+  | 'warehouse'
+  | 'product'
+  | 'movement'
+  | 'technician'
+  | 'user'
+  | 'system';
+
+export interface CompanyAuditEntry {
+  id: number;
+  actorName: string;
+  actorUsername: string;
+  actorRole: 'ops' | 'tech' | 'platform';
+  category: AuditCategory;
+  action: string;
+  target: string;
+  detail: string;
+  ts: number;
+}
+
 interface UserRow {
   id: string;
   username: string;
@@ -71,9 +92,57 @@ function cleanUser(row?: UserRow | null): UserAccount | null {
 }
 
 const globalForDb = globalThis as unknown as { __gridstockDb?: DatabaseSync };
+const migratedDbs = new WeakSet<DatabaseSync>();
+
+export function ensureSchemaMigrations(db: DatabaseSync): void {
+  if (migratedDbs.has(db)) return;
+
+  const prodCols = new Set(
+    (db.prepare('PRAGMA table_info(products)').all() as { name: string }[]).map(c => c.name)
+  );
+  if (prodCols.size > 0) {
+    if (!prodCols.has('unit_cost')) {
+      db.exec('ALTER TABLE products ADD COLUMN unit_cost REAL NOT NULL DEFAULT 0');
+    }
+    if (!prodCols.has('supplier')) {
+      db.exec("ALTER TABLE products ADD COLUMN supplier TEXT NOT NULL DEFAULT ''");
+    }
+  }
+
+  const movCols = new Set(
+    (db.prepare('PRAGMA table_info(movements)').all() as { name: string }[]).map(c => c.name)
+  );
+  if (movCols.size > 0) {
+    if (!movCols.has('serial')) {
+      db.exec('ALTER TABLE movements ADD COLUMN serial TEXT');
+    }
+    if (!movCols.has('photo')) {
+      db.exec('ALTER TABLE movements ADD COLUMN photo TEXT');
+    }
+  }
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS company_audit (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      actor_name TEXT NOT NULL,
+      actor_username TEXT NOT NULL,
+      actor_role TEXT NOT NULL DEFAULT 'ops',
+      category TEXT NOT NULL,
+      action TEXT NOT NULL,
+      target TEXT NOT NULL DEFAULT '',
+      detail TEXT NOT NULL DEFAULT '',
+      ts INTEGER NOT NULL
+    );
+  `);
+
+  if (prodCols.size > 0 && movCols.size > 0) {
+    migratedDbs.add(db);
+  }
+}
 
 export function getDb(): DatabaseSync {
   if (globalForDb.__gridstockDb) {
+    ensureSchemaMigrations(globalForDb.__gridstockDb);
     return globalForDb.__gridstockDb;
   }
   const defaultPath = process.env.VERCEL
@@ -116,6 +185,18 @@ export function createDatabase(resolved: string, createAdmin = true): DatabaseSy
       value TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS company_audit (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      actor_name TEXT NOT NULL,
+      actor_username TEXT NOT NULL,
+      actor_role TEXT NOT NULL DEFAULT 'ops',
+      category TEXT NOT NULL,
+      action TEXT NOT NULL,
+      target TEXT NOT NULL DEFAULT '',
+      detail TEXT NOT NULL DEFAULT '',
+      ts INTEGER NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS warehouses (
       id TEXT PRIMARY KEY,
       code TEXT UNIQUE NOT NULL,
@@ -134,6 +215,8 @@ export function createDatabase(resolved: string, createAdmin = true): DatabaseSy
       unit TEXT NOT NULL DEFAULT 'un.',
       min INTEGER NOT NULL DEFAULT 0,
       base_min INTEGER NOT NULL DEFAULT 0,
+      unit_cost REAL NOT NULL DEFAULT 0,
+      supplier TEXT NOT NULL DEFAULT '',
       sort_order INTEGER NOT NULL DEFAULT 0
     );
 
@@ -185,9 +268,13 @@ export function createDatabase(resolved: string, createAdmin = true): DatabaseSy
       operator TEXT,
       before_qty INTEGER,
       delta INTEGER,
+      serial TEXT,
+      photo TEXT,
       ts INTEGER NOT NULL
     );
   `);
+
+  ensureSchemaMigrations(db);
 
   const countRow = db.prepare('SELECT COUNT(*) AS cnt FROM users').get() as { cnt: number };
   const adminUser = process.env.GRIDSTOCK_ADMIN_USERNAME;
@@ -212,6 +299,7 @@ export function createDatabase(resolved: string, createAdmin = true): DatabaseSy
 }
 
 export function loadState(db = getDb()): GridStockState {
+  ensureSchemaMigrations(db);
   const metaRows = db.prepare('SELECT key, value FROM app_meta').all() as { key: string; value: string }[];
   const meta = Object.fromEntries(metaRows.map(r => [r.key, JSON.parse(r.value)]));
 
@@ -224,15 +312,21 @@ export function loadState(db = getDb()): GridStockState {
     address: String(w.address || ''),
   }));
 
-  const parts: Part[] = (db.prepare('SELECT * FROM products ORDER BY sort_order ASC').all() as Record<string, unknown>[]).map(p => ({
-    id: String(p.id),
-    sku: String(p.sku),
-    name: String(p.name),
-    category: String(p.category),
-    unit: String(p.unit || 'un.'),
-    min: Number(p.min ?? 0),
-    baseMin: Number(p.base_min ?? 0),
-  }));
+  const parts: Part[] = (db.prepare('SELECT * FROM products ORDER BY sort_order ASC').all() as Record<string, unknown>[]).map(p => {
+    const unitCost = Number(p.unit_cost ?? 0);
+    const supplier = String(p.supplier || '').trim();
+    return {
+      id: String(p.id),
+      sku: String(p.sku),
+      name: String(p.name),
+      category: String(p.category),
+      unit: String(p.unit || 'un.'),
+      min: Number(p.min ?? 0),
+      baseMin: Number(p.base_min ?? 0),
+      ...(unitCost > 0 ? { unitCost } : {}),
+      ...(supplier ? { supplier } : {}),
+    };
+  });
 
   const technicians: Technician[] = (db.prepare('SELECT * FROM technicians ORDER BY sort_order ASC').all() as Record<string, unknown>[]).map(t => ({
     id: String(t.id),
@@ -300,6 +394,8 @@ export function loadState(db = getDb()): GridStockState {
     if (m.operator !== null && m.operator !== undefined) ev.operator = String(m.operator);
     if (m.before_qty !== null && m.before_qty !== undefined) ev.before = Number(m.before_qty);
     if (m.delta !== null && m.delta !== undefined) ev.delta = Number(m.delta);
+    if (m.serial !== null && m.serial !== undefined && String(m.serial).trim()) ev.serial = String(m.serial);
+    if (m.photo !== null && m.photo !== undefined && String(m.photo).trim()) ev.photo = String(m.photo);
     return ev;
   });
 
@@ -322,6 +418,7 @@ export function loadState(db = getDb()): GridStockState {
 }
 
 export function saveState(db: DatabaseSync, s: GridStockState): void {
+  ensureSchemaMigrations(db);
   db.exec('BEGIN IMMEDIATE');
   try {
     const setMeta = db.prepare('INSERT OR REPLACE INTO app_meta (key, value) VALUES (?, ?)');
@@ -340,11 +437,11 @@ export function saveState(db: DatabaseSync, s: GridStockState): void {
 
     db.exec('DELETE FROM products');
     const insProduct = db.prepare(`
-      INSERT INTO products (id, sku, name, category, unit, min, base_min, sort_order)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO products (id, sku, name, category, unit, min, base_min, unit_cost, supplier, sort_order)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     s.parts.forEach((p, i) => {
-      insProduct.run(p.id, p.sku, p.name, p.category, p.unit || 'un.', p.min ?? 0, p.baseMin ?? 0, i);
+      insProduct.run(p.id, p.sku, p.name, p.category, p.unit || 'un.', p.min ?? 0, p.baseMin ?? 0, p.unitCost ?? 0, p.supplier || '', i);
     });
 
     db.exec('DELETE FROM technicians');
@@ -398,8 +495,8 @@ export function saveState(db: DatabaseSync, s: GridStockState): void {
       INSERT INTO movements (
         id, seq_num, kind, technician_id, part_id, qty, warehouse_id,
         from_id, to_id, from_address, to_address, order_code, placement,
-        note, operator, before_qty, delta, ts
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        note, operator, before_qty, delta, serial, photo, ts
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     s.movements.forEach((m, idx) => {
       const numMatch = String(m.id || '').match(/(\d+)$/);
@@ -422,6 +519,8 @@ export function saveState(db: DatabaseSync, s: GridStockState): void {
         m.operator ?? null,
         m.before ?? null,
         m.delta ?? null,
+        m.serial ?? null,
+        m.photo ?? null,
         m.ts
       );
     });
@@ -605,4 +704,138 @@ export function stateForUser(state: GridStockState, user: UserAccount): GridStoc
     movements,
     used: movements.filter(m => m.kind === 'use').reduce((sum, m) => sum + (m.qty || 0), 0),
   };
+}
+
+export function recordCompanyAudit(
+  db: DatabaseSync,
+  entry: {
+    actorName: string;
+    actorUsername?: string;
+    actorRole?: 'ops' | 'tech' | 'platform';
+    category: AuditCategory;
+    action: string;
+    target?: string;
+    detail?: string;
+    ts?: number;
+  }
+): void {
+  try {
+    ensureSchemaMigrations(db);
+    db.prepare(
+      `INSERT INTO company_audit (actor_name, actor_username, actor_role, category, action, target, detail, ts)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      String(entry.actorName || 'Sistema').slice(0, 100),
+      String(entry.actorUsername || '').slice(0, 60),
+      entry.actorRole || 'ops',
+      entry.category,
+      String(entry.action || '').slice(0, 120),
+      String(entry.target || '').slice(0, 140),
+      String(entry.detail || '').slice(0, 400),
+      entry.ts ?? Date.now()
+    );
+  } catch {
+    // Non-blocking audit write
+  }
+}
+
+const movKindLabels: Record<string, string> = {
+  entry: 'Entrada de estoque',
+  stockout: 'Saída de estoque',
+  transfer: 'Transferência entre estoques',
+  withdraw: 'Retirada para técnico',
+  return: 'Devolução ao estoque',
+  use: 'Aplicação / Uso em OS',
+  count: 'Ajuste de contagem',
+  departure: 'Declaração de saída do dia',
+  arrival: 'Chegada no cliente',
+  finish: 'Conclusão de atendimento',
+};
+
+export function listCompanyAudit(db = getDb(), providedState?: GridStockState): CompanyAuditEntry[] {
+  ensureSchemaMigrations(db);
+  const countRow = db.prepare('SELECT COUNT(*) AS n FROM company_audit').get() as { n: number } | undefined;
+  if ((countRow?.n ?? 0) === 0) {
+    try {
+      const st = providedState || loadState(db);
+      const users = listUsers(db);
+      const opsAdmin = users.find(u => u.role === 'ops');
+      const ins = db.prepare(
+        `INSERT INTO company_audit (actor_name, actor_username, actor_role, category, action, target, detail, ts)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      );
+      db.exec('BEGIN IMMEDIATE');
+      try {
+        for (const u of users) {
+          ins.run(
+            opsAdmin?.name || u.name,
+            opsAdmin?.username || u.username,
+            'ops',
+            'user',
+            u.role === 'ops' ? 'Administrador cadastrado' : 'Conta de técnico vinculada',
+            `${u.name} (@${u.username})`,
+            `Perfil: ${u.role === 'ops' ? 'Controle Operacional' : 'Técnico em campo'}`,
+            u.createdAt || Date.now() - 86400000
+          );
+        }
+        for (const w of st.warehouses) {
+          ins.run(
+            opsAdmin?.name || w.responsible || 'Controle Operacional',
+            opsAdmin?.username || '',
+            'ops',
+            'warehouse',
+            'Estoque cadastrado',
+            `${w.name} (${w.code})`,
+            `Cidade: ${w.city} · Responsável: ${w.responsible}`,
+            st.updatedAt || Date.now() - 7200000
+          );
+        }
+        const sortedMovs = [...st.movements].sort((a, b) => a.ts - b.ts);
+        for (const m of sortedMovs) {
+          const part = st.parts.find(p => p.id === m.part);
+          const wh = st.warehouses.find(w => w.id === (m.warehouse || m.from));
+          const toWh = m.to ? st.warehouses.find(w => w.id === m.to) : null;
+          const tech = st.technicians.find(t => t.id === m.technician);
+          const targetLabel = part ? `${part.sku} · ${part.name}` : tech ? tech.name : wh ? wh.name : m.id;
+          const detailParts: string[] = [];
+          if (m.qty !== undefined && m.qty !== null) detailParts.push(`Qtd: ${m.qty} un.`);
+          if (wh) detailParts.push(`Estoque: ${wh.name}${toWh ? ` → ${toWh.name}` : ''}`);
+          if (tech) detailParts.push(`Técnico: ${tech.name}`);
+          if (m.order) detailParts.push(`OS: ${m.order}`);
+          if (m.note) detailParts.push(m.note);
+          ins.run(
+            m.operator || opsAdmin?.name || 'Operador',
+            '',
+            m.technician && ['use', 'arrival', 'finish', 'departure', 'count'].includes(m.kind) ? 'tech' : 'ops',
+            'movement',
+            movKindLabels[m.kind] || `Movimentação (${m.kind})`,
+            targetLabel,
+            detailParts.join(' · '),
+            m.ts
+          );
+        }
+        db.exec('COMMIT');
+      } catch {
+        db.exec('ROLLBACK');
+      }
+    } catch {}
+  }
+
+  return db
+    .prepare(
+      `SELECT
+         id,
+         actor_name AS actorName,
+         actor_username AS actorUsername,
+         actor_role AS actorRole,
+         category,
+         action,
+         target,
+         detail,
+         ts
+       FROM company_audit
+       ORDER BY ts DESC, id DESC
+       LIMIT 300`
+    )
+    .all() as unknown as CompanyAuditEntry[];
 }

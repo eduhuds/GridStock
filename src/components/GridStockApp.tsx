@@ -17,9 +17,53 @@ import {
   total as calcTotal,
   alerts as calcAlerts,
 } from '@/lib/domain';
-import type { UserAccount } from '@/lib/db';
+import type { UserAccount, CompanyAuditEntry } from '@/lib/db';
 import DashboardCharts from './DashboardCharts';
+import ThemeToggle from './ThemeToggle';
+import BarcodeScannerModal from './BarcodeScannerModal';
+import RestockOrderModal from './RestockOrderModal';
+import ProductQrModal, { QrCodeSvg } from './ProductQrModal';
+import { LegalFooterLinks, openLegalHub } from './LegalAccessibilityHub';
+import TeamAnalyticsPanel from './TeamAnalyticsPanel';
 import { parseXlsxBytes } from '@/lib/xlsx';
+
+const brlFormatter = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
+
+function compressPhotoFile(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('Falha ao ler a foto.'));
+    reader.onload = () => {
+      const img = new Image();
+      img.onerror = () => reject(new Error('Formato de imagem inválido.'));
+      img.onload = () => {
+        const maxDim = 640;
+        let { width, height } = img;
+        if (width > maxDim || height > maxDim) {
+          if (width > height) {
+            height = Math.round((height * maxDim) / width);
+            width = maxDim;
+          } else {
+            width = Math.round((width * maxDim) / height);
+            height = maxDim;
+          }
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          resolve(String(reader.result || ''));
+          return;
+        }
+        ctx.drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL('image/jpeg', 0.65));
+      };
+      img.src = String(reader.result || '');
+    };
+    reader.readAsDataURL(file);
+  });
+}
 
 const iconPaths: Record<string, string> = {
   grid: '<rect x="3" y="3" width="7" height="7" rx="1.4"/><rect x="14" y="3" width="7" height="7" rx="1.4"/><rect x="3" y="14" width="7" height="7" rx="1.4"/><rect x="14" y="14" width="7" height="7" rx="1.4"/>',
@@ -51,6 +95,7 @@ const iconPaths: Record<string, string> = {
   route: '<circle cx="6" cy="5" r="2"/><circle cx="18" cy="19" r="2"/><path d="M8 5h7a4 4 0 0 1 0 8H9a3 3 0 0 0 0 6h7"/>',
   logout: '<path d="M9 21H4V3h5M13 8l5 4-5 4M9 12h12"/>',
   trash: '<path d="M3 6h18M8 6V4h8v2m-9 0v14h10V6"/>',
+  qr: '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 14h3v3h-3zM18 18h3v3h-3zM14 19h2v2h-2zM19 14h2v2h-2z"/>',
 };
 
 function Icon({ name }: { name: string }) {
@@ -106,7 +151,7 @@ const kindMap: Record<MovementKind, [string, string, string]> = {
   departure: ['Saída do dia', 'blue', 'van'],
 };
 
-type PageId = 'overview' | 'warehouses' | 'stock' | 'products' | 'movements' | 'team';
+type PageId = 'overview' | 'warehouses' | 'stock' | 'products' | 'movements' | 'team' | 'audit';
 
 type ModalState =
   | null
@@ -119,6 +164,7 @@ type ModalState =
   | { type: 'tech'; techId?: string }
   | { type: 'transfer'; fromId: string; toId: string; partId: string }
   | { type: 'system' }
+  | { type: 'profile' }
   | { type: 'reset'; mode: 'seed' | 'empty' };
 
 export default function GridStockApp({ entryRole = 'ops', company }: { entryRole?: 'ops' | 'tech'; company?: { slug: string; name: string; color: string; tagline: string; config: CompanyConfig } }) {
@@ -134,6 +180,8 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
   const TOKEN_KEY = (entryRole === 'tech' ? 'gridstock-tech-auth-token' : 'gridstock-auth-token') + (companySlug ? `:${companySlug}` : '');
   const [state, setState] = useState<GridStockState>(() => emptyState());
   const [users, setUsers] = useState<UserAccount[]>([]);
+  const [auditLogs, setAuditLogs] = useState<CompanyAuditEntry[]>([]);
+  const [auditPage, setAuditPage] = useState<number>(1);
   const [currentUser, setCurrentUser] = useState<UserAccount | null>(null);
   const [authToken, setAuthToken] = useState<string>('');
   const [booting, setBooting] = useState<boolean>(true);
@@ -175,6 +223,14 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
   const [moveNote, setMoveNote] = useState<string>('');
   const [moveCorridor, setMoveCorridor] = useState<string>('');
   const [moveShelf, setMoveShelf] = useState<string>('');
+  const [moveSerial, setMoveSerial] = useState<string>('');
+  const [movePhoto, setMovePhoto] = useState<string>('');
+  const [movementsPage, setMovementsPage] = useState<number>(1);
+  const [scannerTarget, setScannerTarget] = useState<null | 'search' | 'product-sku' | 'movement-serial' | 'movement-part' | 'quick-withdraw'>(null);
+  const [restockModalOpen, setRestockModalOpen] = useState<boolean>(false);
+  const [qrModalPartId, setQrModalPartId] = useState<string | 'all' | null>(null);
+  const [quickMenuOpen, setQuickMenuOpen] = useState<boolean>(false);
+  const [prodSkuInput, setProdSkuInput] = useState<string>('');
 
   // Product modal warehouse selection
   const [prodWarehouseId, setProdWarehouseId] = useState<string>('');
@@ -195,6 +251,7 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
   const [confirmDeleteUser, setConfirmDeleteUser] = useState<UserAccount | null>(null);
   const [confirmDeleteProduct, setConfirmDeleteProduct] = useState<boolean>(false);
   const [xlsxImporting, setXlsxImporting] = useState<boolean>(false);
+  const [submitting, setSubmitting] = useState<boolean>(false);
   const xlsxInputRef = useRef<HTMLInputElement | null>(null);
 
   // Geolocation state for technician part usage
@@ -271,10 +328,12 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
     setFilterLoc('');
     setFilterCategory('');
     setLowOnly(false);
+    setMovementsPage(1);
+    setAuditPage(1);
   }, []);
 
   const applyServerPayload = useCallback(
-    (data: { token?: string; user?: UserAccount; state?: GridStockState; users?: UserAccount[]; config?: CompanyConfig }) => {
+    (data: { token?: string; user?: UserAccount; state?: GridStockState; users?: UserAccount[]; audit?: CompanyAuditEntry[]; config?: CompanyConfig }) => {
       if (data.config) setCompanyConfig(data.config);
       if (data.token) {
         setAuthToken(data.token);
@@ -302,6 +361,9 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
       }
       if (data.users) {
         setUsers(data.users);
+      }
+      if (data.audit) {
+        setAuditLogs(data.audit);
       }
     },
     [TOKEN_KEY]
@@ -385,6 +447,18 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
     window.addEventListener('focus', refresh);
     return () => { active = false; clearInterval(timer); window.removeEventListener('focus', refresh); };
   }, [authToken, currentUser?.id, modal, apiCall, applyServerPayload]);
+
+  useEffect(() => {
+    const onOpenQrWithdraw = () => {
+      if (currentUser?.role === 'ops') {
+        setScannerTarget('quick-withdraw');
+      } else if (currentUser) {
+        setScannerTarget('search');
+      }
+    };
+    window.addEventListener('gridstock:open-qr-withdraw', onOpenQrWithdraw);
+    return () => window.removeEventListener('gridstock:open-qr-withdraw', onOpenQrWithdraw);
+  }, [currentUser]);
 
   // Helpers
   const partById = useCallback((id?: string) => state.parts.find(p => p.id === id), [state.parts]);
@@ -482,6 +556,8 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
     setMoveNote('');
     setMoveCorridor('');
     setMoveShelf('');
+    setMoveSerial('');
+    setMovePhoto('');
     setFormError('');
     if (kind === 'use') {
       captureGeolocation();
@@ -509,9 +585,11 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
         ? filterLoc
         : state.warehouses.find(w => state.locations[w.id]?.[pid || ''])?.id) || state.warehouses[0].id;
     const slot = pid ? state.locations[defaultWid]?.[pid] : undefined;
+    const existingPart = pid ? partById(pid) : undefined;
     setProdWarehouseId(defaultWid);
     setProdCorridor(slot?.corridor || '');
     setProdShelf(slot?.shelf || '');
+    setProdSkuInput(existingPart?.sku || '');
     setFormError('');
     setConfirmDeleteProduct(false);
     setModal({ type: 'product', partId: pid });
@@ -560,18 +638,43 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
         await apiCall('POST', '/api/auth/convert-cpf', { legacyUsername: legacyLogin, password: loginPass, cpf: loginUser });
         setConvertingCpf(false);
       }
-      const data = await apiCall('POST', '/api/auth/login', { cpf: loginUser, password: loginPass, role: entryRole });
-      if (data.companySlug && data.companySlug !== companySlug) {
-        const companyTokenKey = `${entryRole === 'tech' ? 'gridstock-tech-auth-token' : 'gridstock-auth-token'}:${data.companySlug}`;
-        localStorage.setItem(companyTokenKey, data.token);
-        window.location.href = entryRole === 'tech' ? `/empresa/${data.companySlug}/tecnico` : `/empresa/${data.companySlug}`;
-        return;
+      try {
+        const data = await apiCall('POST', '/api/auth/login', { cpf: loginUser, password: loginPass, role: entryRole });
+        if (data.companySlug && data.companySlug !== companySlug) {
+          const companyTokenKey = `${entryRole === 'tech' ? 'gridstock-tech-auth-token' : 'gridstock-auth-token'}:${data.companySlug}`;
+          localStorage.setItem(companyTokenKey, data.token);
+          window.location.href = entryRole === 'tech' ? `/empresa/${data.companySlug}/tecnico` : `/empresa/${data.companySlug}`;
+          return;
+        }
+        applyServerPayload(data);
+        setView(data.user.role === 'tech' ? 'tech' : 'ops');
+        setPage('overview');
+        clearFilters();
+        showToast(`Bem-vindo, ${data.user.name}.`);
+      } catch (loginErr) {
+        if (entryRole !== 'tech') {
+          try {
+            const adminRes = await fetch('/api/admin/login', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                cpf: loginUser,
+                password: loginPass,
+                ...(convertingCpf ? { action: 'convertToCpf', legacyUsername: legacyLogin } : {}),
+              }),
+            });
+            if (adminRes.ok) {
+              const adminData = await adminRes.json();
+              if (adminData?.token) {
+                localStorage.setItem('gridstock-master-token', adminData.token);
+                window.location.href = '/administracao';
+                return;
+              }
+            }
+          } catch {}
+        }
+        throw loginErr;
       }
-      applyServerPayload(data);
-      setView(data.user.role === 'tech' ? 'tech' : 'ops');
-      setPage('overview');
-      clearFilters();
-      showToast(`Bem-vindo, ${data.user.name}.`);
     } catch (err) {
       setLoginError(err instanceof Error ? err.message : 'Falha no login.');
     } finally {
@@ -611,6 +714,7 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
         slotLabel(m.fromAddress),
         slotLabel(m.toAddress),
         m.note,
+        m.serial,
         m.id,
       ]
         .join(' ')
@@ -766,9 +870,24 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
     return (
       <div className="login-shell">
         <aside className="login-aside">
-          <div className="brand">
+          <div className="brand" title={company?.name || 'GRIDSTOCK'}>
             <img className="brand-mark" src="/gridstock-mark.svg" width={40} height={40} alt="" />
-            <span className="brand-wordmark">{company ? company.name.toUpperCase() : <>GRID<span>STOCK</span><i aria-hidden="true">.</i></>}</span>
+            <span
+              className={`brand-wordmark ${company ? 'company-wordmark' : ''}`}
+              data-length={
+                company
+                  ? company.name.length > 22
+                    ? 'xl'
+                    : company.name.length > 14
+                    ? 'lg'
+                    : company.name.length > 9
+                    ? 'md'
+                    : 'sm'
+                  : undefined
+              }
+            >
+              {company ? company.name.toUpperCase() : <>GRID<span>STOCK</span><i aria-hidden="true">.</i></>}
+            </span>
           </div>
           <div className="login-hero">
             <span className="eyebrow" style={{ color: 'var(--lime)' }}>CARREGANDO SISTEMA</span>
@@ -785,9 +904,24 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
       <>
         <div className="login-shell">
           <aside className="login-aside">
-            <div className="brand">
+            <div className="brand" title={company?.name || 'GRIDSTOCK'}>
               <img className="brand-mark" src="/gridstock-mark.svg" width={40} height={40} alt="" />
-              <span className="brand-wordmark">{company ? company.name.toUpperCase() : <>GRID<span>STOCK</span><i aria-hidden="true">.</i></>}</span>
+              <span
+                className={`brand-wordmark ${company ? 'company-wordmark' : ''}`}
+                data-length={
+                  company
+                    ? company.name.length > 22
+                      ? 'xl'
+                      : company.name.length > 14
+                      ? 'lg'
+                      : company.name.length > 9
+                      ? 'md'
+                      : 'sm'
+                    : undefined
+                }
+              >
+                {company ? company.name.toUpperCase() : <>GRID<span>STOCK</span><i aria-hidden="true">.</i></>}
+              </span>
             </div>
             <div className="login-hero">
               <span className="eyebrow" style={{ color: 'var(--lime)' }}>{companyConfig.fieldService ? 'OPERAÇÃO E CAMPO EM TEMPO REAL' : 'ESTOQUE ORGANIZADO, OPERAÇÃO CONECTADA'}</span>
@@ -796,18 +930,57 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
                 {company?.tagline || (companyConfig.fieldService ? 'Conecte seus estoques à equipe em campo e acompanhe cada peça, da base ao atendimento.' : 'Acompanhe produtos, entradas, saídas e reposição em um só lugar.')}
               </p>
               {companyConfig.fieldService && <div className="login-flow" aria-label="Fluxo de estoque da base ao atendimento">
-                <div><span className="flow-icon"><Icon name="box" /></span><strong>Na base</strong><small>Estoque organizado</small></div>
+                <div className="flow-step step-1"><span className="flow-icon"><Icon name="box" /></span><strong>Na base</strong><small>Estoque organizado</small></div>
                 <Icon name="arrow" />
-                <div><span className="flow-icon"><Icon name="van" /></span><strong>Em campo</strong><small>Equipe conectada</small></div>
+                <div className="flow-step step-2"><span className="flow-icon"><Icon name="van" /></span><strong>Em campo</strong><small>Equipe conectada</small></div>
                 <Icon name="arrow" />
-                <div><span className="flow-icon"><Icon name="check" /></span><strong>No destino</strong><small>Uso registrado</small></div>
+                <div className="flow-step step-3"><span className="flow-icon"><Icon name="check" /></span><strong>No destino</strong><small>Uso registrado</small></div>
               </div>}
             </div>
-            <div className="small" style={{ color: '#8da396' }}>GRIDSTOCK · Sistema de Gestão de Estoque em Movimento</div>
+            <svg
+              className="login-rising-wave"
+              viewBox="0 0 800 320"
+              preserveAspectRatio="none"
+              aria-hidden="true"
+            >
+              <defs>
+                <linearGradient id="gsRisingArea" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#d5ef87" stopOpacity="0.22" />
+                  <stop offset="100%" stopColor="#d5ef87" stopOpacity="0.0" />
+                </linearGradient>
+                <linearGradient id="gsRisingStroke" x1="0" y1="1" x2="1" y2="0">
+                  <stop offset="0%" stopColor="#d5ef87" stopOpacity="0.2" />
+                  <stop offset="55%" stopColor="#d5ef87" stopOpacity="0.65" />
+                  <stop offset="100%" stopColor="#d5ef87" stopOpacity="0.95" />
+                </linearGradient>
+              </defs>
+              {/* Camada secundária em contratempo (sobe e desce suave) */}
+              <g className="wave-layer wave-back">
+                <path
+                  className="wave-secondary-line"
+                  d="M -20 290 C 90 245, 150 280, 250 215 C 350 150, 420 210, 530 130 C 640 50, 710 105, 820 35"
+                />
+              </g>
+              {/* Linha principal crescente com picos e vales (movimento pra cima e pra baixo) */}
+              <g className="wave-layer wave-front">
+                <path
+                  className="wave-area-fill"
+                  d="M -20 280 C 80 220, 145 265, 240 190 C 335 115, 415 175, 520 95 C 625 15, 705 70, 820 12 L 820 340 L -20 340 Z"
+                />
+                <path
+                  className="wave-main-line"
+                  d="M -20 280 C 80 220, 145 265, 240 190 C 335 115, 415 175, 520 95 C 625 15, 705 70, 820 12"
+                />
+              </g>
+            </svg>
+            <div className="small" style={{ color: '#8da396', position: 'relative', zIndex: 1 }}>GRIDSTOCK · Sistema de Gestão de Estoque em Movimento</div>
           </aside>
           <main className="login-main">
             <form className="login-card" onSubmit={handleLogin}>
-              <div className="login-entry-icon"><Icon name={entryRole === 'tech' ? 'van' : 'grid'} /></div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                <div className="login-entry-icon"><Icon name={entryRole === 'tech' ? 'van' : 'grid'} /></div>
+                <ThemeToggle showLabel />
+              </div>
               <span className="page-eyebrow">{company ? `BEM-VINDO À ${company.name.toUpperCase()}` : 'BEM-VINDO AO GRIDSTOCK'}</span>
               <h2>{entryRole === 'tech' ? 'Área do técnico' : 'Controle operacional'}</h2>
               <p>{entryRole === 'tech' ? 'Entre para informar seu estoque pessoal e as peças que levará hoje.' : (companyConfig.fieldService ? 'Entre para acompanhar os estoques e a equipe em campo.' : 'Entre para gerenciar os produtos e estoques da sua empresa.')}</p>
@@ -847,12 +1020,20 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
               <button type="button" className="text-link" onClick={() => { setConvertingCpf(!convertingCpf); setLoginError(''); }}>{convertingCpf ? 'Já tenho CPF cadastrado' : 'Primeiro acesso por CPF? Converter conta antiga'}</button>
               <div className="login-hint">
                 {entryRole === 'tech' ? 'Use seu CPF e a senha fornecida pelo administrador.' : (companyConfig.fieldService ? 'Cadastre a equipe e acompanhe as movimentações de cada técnico.' : 'Acesso exclusivo aos dados da sua empresa.')}
-                <br />
-                <a className="text-link" hidden={!companyConfig.fieldService} href={entryRole === 'tech' ? (companyBase || '/') : `${companyBase}/tecnico`}>
-                  {entryRole === 'tech' ? 'Acesso do operacional' : 'Acesso exclusivo do técnico'}
-                </a>
-                {!company && <><br /><a className="text-link" href="/administracao">Central de Administração</a></>}
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 6, marginTop: 10 }}>
+                  {companyConfig.fieldService && (
+                    <a className="text-link" style={{ marginTop: 0 }} href={entryRole === 'tech' ? (companyBase || '/') : `${companyBase}/tecnico`}>
+                      <Icon name={entryRole === 'tech' ? 'grid' : 'van'} />
+                      {entryRole === 'tech' ? 'Acesso do operacional' : 'Acesso exclusivo do técnico'}
+                    </a>
+                  )}
+                  <a className="text-link" style={{ marginTop: 0 }} href="/administracao">
+                    <Icon name="shield" />
+                    Central de Administração (Admin do Sistema)
+                  </a>
+                </div>
               </div>
+              <LegalFooterLinks compact />
             </form>
           </main>
         </div>
@@ -861,7 +1042,7 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
     );
   }
 
-  if (!companyConfig.fieldService && currentUser.role === 'ops') return <StockWorkspace state={state} users={users} user={currentUser} name={company?.name || 'GRIDSTOCK'} config={companyConfig} api={apiCall} update={applyServerPayload} logout={handleLogout} />;
+  if (!companyConfig.fieldService && currentUser.role === 'ops') return <StockWorkspace state={state} users={users} audit={auditLogs} user={currentUser} name={company?.name || 'GRIDSTOCK'} config={companyConfig} api={apiCall} update={applyServerPayload} logout={handleLogout} />;
 
   const isOpsUser = currentUser.role === 'ops';
   const ops = view === 'ops' && isOpsUser;
@@ -873,6 +1054,7 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
         products: 'Produtos',
         movements: 'Movimentações',
         team: 'Equipe em campo',
+        audit: 'Auditoria da Empresa',
       }[page]
     : {
         overview: 'Minha jornada',
@@ -881,6 +1063,7 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
         warehouses: 'Minha jornada',
         products: 'Minha jornada',
         team: 'Minha jornada',
+        audit: 'Minha jornada',
       }[page];
 
   const userInitials = ops
@@ -900,6 +1083,12 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
 
   const renderOpsStats = () => {
     const on = state.technicians.filter(t => ['route', 'working'].includes(t.status)).length;
+    const totalValuation = state.parts.reduce((sum, p) => {
+      const unitCost = p.unitCost || 0;
+      if (!unitCost) return sum;
+      const partTotal = Object.values(state.stock).reduce((acc, st) => acc + (st[p.id] || 0), 0);
+      return sum + partTotal * unitCost;
+    }, 0);
     return (
       <div className="stats">
         <div className="stat-card featured">
@@ -907,11 +1096,12 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
           <div className="stat-value mono">{fmtNum(totalAll)}</div>
           <div className="stat-foot">
             <span className="green">{fmtNum(warehousesTotal)} nos estoques</span> · {fmtNum(totalAll - warehousesTotal)} em campo
+            {totalValuation > 0 && <> · <strong>{brlFormatter.format(totalValuation)}</strong></>}
           </div>
         </div>
         <div className="stat-card">
           <div className="stat-top">Técnicos em campo<span className="stat-icon"><Icon name="users" /></span></div>
-          <div className="stat-value mono">{String(on).padStart(2, '0')}</div>
+          <div className="stat-value mono">{fmtNum(on)}</div>
           <div className="stat-foot">
             {state.technicians.filter(t => t.status === 'working').length} em atendimento · {state.technicians.filter(t => t.status === 'route').length} a caminho
           </div>
@@ -925,7 +1115,7 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
         </div>
         <div className={`stat-card ${warehouseLowAlerts.length || allAlerts.length ? 'alert' : ''}`}>
           <div className="stat-top">Estoque baixo (Base)<span className="stat-icon"><Icon name="alert" /></span></div>
-          <div className="stat-value mono">{String(warehouseLowAlerts.length).padStart(2, '0')}</div>
+          <div className="stat-value mono">{fmtNum(warehouseLowAlerts.length)}</div>
           <div className="stat-foot">
             {warehouseLowAlerts.length
               ? `${warehouseLowAlerts.length} peça(s) abaixo do mínimo no estoque`
@@ -962,11 +1152,21 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
               </p>
             </div>
           </div>
-          <Badge
-            label={`${warehouseLowAlerts.length} ${warehouseLowAlerts.length === 1 ? 'item baixo no estoque' : 'itens baixos no estoque'}`}
-            color="amber"
-            dot
-          />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            <Badge
+              label={`${warehouseLowAlerts.length} ${warehouseLowAlerts.length === 1 ? 'item baixo no estoque' : 'itens baixos no estoque'}`}
+              color="amber"
+              dot
+            />
+            <button
+              type="button"
+              className="button secondary"
+              style={{ padding: '6px 12px', fontSize: '.78rem' }}
+              onClick={() => setRestockModalOpen(true)}
+            >
+              <Icon name="download" />Gerar pedido de compra
+            </button>
+          </div>
         </div>
         <div className="table-wrap">
           <table>
@@ -1050,7 +1250,7 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
         </div>
         <div className={`stat-card ${a.length ? 'alert' : ''}`}>
           <div className="stat-top">Abaixo do mínimo<span className="stat-icon"><Icon name="alert" /></span></div>
-          <div className="stat-value mono">{String(a.length).padStart(2, '0')}</div>
+          <div className="stat-value mono">{fmtNum(a.length)}</div>
           <div className="stat-foot">{a.length ? 'Confira a necessidade de reposição' : 'Estoque dentro do mínimo'}</div>
         </div>
       </div>
@@ -1118,7 +1318,10 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
                       <span className="item-icon"><Icon name={p ? 'box' : k[2]} /></span>
                       <div>
                         <strong>{p ? p.name : `${k[0]} em campo`}</strong>
-                        <span className="cell-sub">{p ? p.sku : m.order || 'OS'} · {m.id}</span>
+                        <span className="cell-sub">
+                          {p ? p.sku : m.order || 'OS'} · {m.id}
+                          {m.serial ? ` · Nº Série/MAC: ${m.serial}` : ''}
+                        </span>
                       </div>
                     </div>
                   </td>
@@ -1140,6 +1343,18 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
                         title={`Coordenadas GPS: ${gpsInfo.coords}`}
                       >
                         <Icon name="pin" />Ver no Mapa
+                      </a>
+                    )}
+                    {m.photo && (
+                      <a
+                        href={m.photo}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-link"
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: '.76rem', marginLeft: 8 }}
+                        title="Abrir comprovante / foto anexada"
+                      >
+                        <Icon name="check" />Ver Foto / Comprovante
                       </a>
                     )}
                     {sub && <span className="cell-sub">{sub}</span>}
@@ -1238,6 +1453,14 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
               <Icon name="calendar" />
               {new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', timeZone: 'America/Fortaleza' })}
             </span>
+            <button
+              type="button"
+              className="button secondary"
+              onClick={() => setScannerTarget('quick-withdraw')}
+              title="Aponte para o QR Code da peça para enviar ao técnico"
+            >
+              <Icon name="qr" />Bipar QR p/ Retirada
+            </button>
             <button className="button" onClick={() => openMovementModal('withdraw')}>
               <Icon name="plus" />Registrar movimentação
             </button>
@@ -1407,6 +1630,14 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
           <div className="heading-actions">
             {ops ? (
               <>
+                <button
+                  type="button"
+                  className="button secondary"
+                  onClick={() => setScannerTarget('quick-withdraw')}
+                  title="Apontar câmera para o QR Code da peça e enviar ao técnico"
+                >
+                  <Icon name="qr" />Bipar QR p/ Retirada
+                </button>
                 <button className="button secondary" onClick={() => openMovementModal('entry')}>
                   <Icon name="in" />Entrada de estoque
                 </button>
@@ -1569,20 +1800,30 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
                             color={r.qty < r.min ? 'amber' : 'green'}
                           />
                         </td>
-                        <td>
-                          <button
-                            className="text-link"
-                            onClick={() =>
-                              openMovementModal(
-                                isWarehouse(r.loc) ? 'withdraw' : view === 'tech' ? 'use' : 'withdraw',
-                                isWarehouse(r.loc) ? currentTech?.id || techId : r.loc,
-                                r.p.id,
-                                isWarehouse(r.loc) ? r.loc : state.warehouses[0]?.id || 'base'
-                              )
-                            }
-                          >
-                            {isWarehouse(r.loc) ? 'Retirar' : 'Movimentar'} <Icon name="arrow" />
-                          </button>
+                        <td style={{ textAlign: 'right' }}>
+                          <div className="row-actions">
+                            <button
+                              type="button"
+                              className="text-link"
+                              onClick={() => setQrModalPartId(r.p.id)}
+                              title={`Ver QR Code de ${r.p.name}`}
+                            >
+                              <Icon name="qr" />QR Code
+                            </button>
+                            <button
+                              className="text-link"
+                              onClick={() =>
+                                openMovementModal(
+                                  isWarehouse(r.loc) ? 'withdraw' : view === 'tech' ? 'use' : 'withdraw',
+                                  isWarehouse(r.loc) ? currentTech?.id || techId : r.loc,
+                                  r.p.id,
+                                  isWarehouse(r.loc) ? r.loc : state.warehouses[0]?.id || 'base'
+                                )
+                              }
+                            >
+                              {isWarehouse(r.loc) ? 'Retirar' : 'Movimentar'} <Icon name="arrow" />
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     ))}
@@ -1625,7 +1866,7 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
       <div className="stats">
         <div className="stat-card featured">
           <div className="stat-top">Estoques cadastrados<span className="stat-icon"><Icon name="box" /></span></div>
-          <div className="stat-value mono">{String(state.warehouses.length).padStart(2, '0')}</div>
+          <div className="stat-value mono">{fmtNum(state.warehouses.length)}</div>
           <div className="stat-foot">Bases e almoxarifados da operação</div>
         </div>
         <div className="stat-card">
@@ -1635,7 +1876,7 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
         </div>
         <div className="stat-card">
           <div className="stat-top">Transferências<span className="stat-icon"><Icon name="arrows" /></span></div>
-          <div className="stat-value mono">{String(state.movements.filter(m => m.kind === 'transfer').length).padStart(2, '0')}</div>
+          <div className="stat-value mono">{fmtNum(state.movements.filter(m => m.kind === 'transfer').length)}</div>
           <div className="stat-foot">Movimentações entre estoques</div>
         </div>
         <div className="stat-card">
@@ -1679,8 +1920,12 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
                 </div>
               </div>
               <div className="warehouse-meta">
-                <span>Responsável <strong>{w.responsible}</strong></span>
-                <p>{w.address || 'Endereço da base não informado'}</p>
+                <span>
+                  Responsável <strong>{w.responsible || 'Não informado'}</strong>
+                </span>
+                <span>
+                  Endereço <strong>{w.address || 'Não informado'}</strong>
+                </span>
               </div>
               <div className="warehouse-buttons">
                 <button
@@ -1748,6 +1993,28 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
             <p>Um cadastro por produto. Um endereço em cada estoque.</p>
           </div>
           <div className="heading-actions">
+            {state.parts.length > 0 && (
+              <>
+                <button
+                  className="button secondary"
+                  type="button"
+                  onClick={() => setScannerTarget('quick-withdraw')}
+                  title="Bipar QR Code da peça para enviar ao técnico"
+                >
+                  <Icon name="qr" />Bipar QR p/ Retirada
+                </button>
+                <button
+                  className="button secondary"
+                  type="button"
+                  onClick={() => setQrModalPartId('all')}
+                >
+                  <Icon name="qr" />Etiquetas QR ({state.parts.length})
+                </button>
+              </>
+            )}
+            <button className="button secondary" type="button" onClick={() => setRestockModalOpen(true)}>
+              <Icon name="download" />Pedido de compra
+            </button>
             <button className="button secondary" onClick={() => openMovementModal('entry')}>
               <Icon name="in" />Entrada de saldo
             </button>
@@ -1774,11 +2041,19 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
               <input
                 className="input"
                 aria-label="Buscar produtos"
-                placeholder="Produto, código ou endereço..."
+                placeholder="Produto, código, fornecedor ou endereço..."
                 value={query}
                 onChange={e => setQuery(e.target.value)}
               />
             </div>
+            <button
+              type="button"
+              className="button secondary"
+              onClick={() => setScannerTarget('search')}
+              title="Bipar código de barras ou QR Code com a câmera"
+            >
+              <Icon name="search" />Bipar código
+            </button>
             <select
               aria-label="Filtrar estoque do produto"
               value={filterLoc}
@@ -1811,7 +2086,10 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
                             <span className="item-icon"><Icon name="box" /></span>
                             <div>
                               <strong>{p.name}</strong>
-                              <span className="cell-sub">{p.sku} · Mín. base: {p.baseMin} · Mín. técnico: {p.min}</span>
+                              <span className="cell-sub">
+                                {p.sku} · Mín. base: {p.baseMin} · Mín. técnico: {p.min}
+                                {p.supplier ? ` · Forn.: ${p.supplier}` : ''}
+                              </span>
                             </div>
                           </div>
                         </td>
@@ -1820,7 +2098,13 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
                           <strong>
                             {fmtNum(Object.values(state.stock).reduce((acc, st) => acc + (st[p.id] || 0), 0))} {p.unit}
                           </strong>
-                          <span className="cell-sub">Base + técnicos</span>
+                          <span className="cell-sub">
+                            {p.unitCost
+                              ? `${brlFormatter.format(p.unitCost)}/un. · Total ${brlFormatter.format(
+                                  Object.values(state.stock).reduce((acc, st) => acc + (st[p.id] || 0), 0) * p.unitCost
+                                )}`
+                              : 'Base + técnicos'}
+                          </span>
                         </td>
                         <td>
                           <div className="product-addresses">
@@ -1840,13 +2124,27 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
                         <td style={{ textAlign: 'right' }}>
                           <div className="row-actions">
                             <button
+                              type="button"
+                              className="text-link"
+                              onClick={() => setQrModalPartId(p.id)}
+                              title={`Gerar etiqueta QR Code de ${p.name}`}
+                            >
+                              <Icon name="qr" />QR Code
+                            </button>
+                            <button
+                              className="text-link"
+                              onClick={() => openMovementModal('withdraw', currentTech?.id || techId, p.id)}
+                            >
+                              <Icon name="out" />Retirar p/ técnico
+                            </button>
+                            <button
                               className="text-link"
                               onClick={() => openMovementModal('entry', currentTech?.id || techId, p.id)}
                             >
                               + Entrada
                             </button>
                             <button className="text-link" onClick={() => openProductModal(p.id)}>
-                              Editar / endereçar <Icon name="edit" />
+                              Editar <Icon name="edit" />
                             </button>
                           </div>
                         </td>
@@ -1872,7 +2170,15 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
     );
   };
 
-  const renderMovementsPage = () => (
+  const MOVEMENTS_PER_PAGE = 50;
+  const renderMovementsPage = () => {
+    const totalMovPages = Math.max(1, Math.ceil(filteredMovements.length / MOVEMENTS_PER_PAGE));
+    const safeMovPage = Math.min(movementsPage, totalMovPages);
+    const pagedMovements = filteredMovements.slice(
+      (safeMovPage - 1) * MOVEMENTS_PER_PAGE,
+      safeMovPage * MOVEMENTS_PER_PAGE
+    );
+    return (
     <>
       <div className="page-heading">
         <div>
@@ -1915,16 +2221,30 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
             <Icon name="search" />
             <input
               className="input"
-              placeholder="Buscar peça, OS ou local..."
+              placeholder="Buscar peça, nº de série, OS ou local..."
               aria-label="Buscar no histórico"
               value={query}
-              onChange={e => setQuery(e.target.value)}
+              onChange={e => {
+                setQuery(e.target.value);
+                setMovementsPage(1);
+              }}
             />
           </div>
+          <button
+            type="button"
+            className="button secondary"
+            onClick={() => setScannerTarget('search')}
+            title="Bipar código ou nº de série para filtrar histórico"
+          >
+            <Icon name="search" />Bipar
+          </button>
           <select
             aria-label="Filtrar tipo de movimentação"
             value={filterKind}
-            onChange={e => setFilterKind(e.target.value)}
+            onChange={e => {
+              setFilterKind(e.target.value);
+              setMovementsPage(1);
+            }}
           >
             <option value="">Todas as movimentações</option>
             {Object.entries(kindMap).map(([k, v]) => (
@@ -1935,7 +2255,10 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
             <select
               aria-label="Filtrar técnico"
               value={filterTech}
-              onChange={e => setFilterTech(e.target.value)}
+              onChange={e => {
+                setFilterTech(e.target.value);
+                setMovementsPage(1);
+              }}
             >
               <option value="">Todos os técnicos</option>
               {state.technicians.map(t => (
@@ -1944,14 +2267,40 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
             </select>
           )}
         </div>
-        {renderMovementTable(filteredMovements)}
-        <div className="table-footer">
-          <span>{filteredMovements.length} {filteredMovements.length === 1 ? 'registro encontrado' : 'registros encontrados'}</span>
-          <span>Mais recentes primeiro</span>
+        {renderMovementTable(pagedMovements)}
+        <div className="table-footer" style={{ flexWrap: 'wrap', gap: 10 }}>
+          <span>
+            {filteredMovements.length} {filteredMovements.length === 1 ? 'registro encontrado' : 'registros encontrados'} · Página {safeMovPage} de {totalMovPages}
+          </span>
+          {totalMovPages > 1 ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <button
+                type="button"
+                className="button secondary"
+                style={{ padding: '5px 10px', fontSize: '.78rem' }}
+                disabled={safeMovPage <= 1}
+                onClick={() => setMovementsPage(Math.max(1, safeMovPage - 1))}
+              >
+                ← Anterior
+              </button>
+              <button
+                type="button"
+                className="button secondary"
+                style={{ padding: '5px 10px', fontSize: '.78rem' }}
+                disabled={safeMovPage >= totalMovPages}
+                onClick={() => setMovementsPage(Math.min(totalMovPages, safeMovPage + 1))}
+              >
+                Próxima →
+              </button>
+            </div>
+          ) : (
+            <span>Mais recentes primeiro</span>
+          )}
         </div>
       </section>
     </>
-  );
+    );
+  };
 
   const renderTeamPage = () => (
     <>
@@ -1969,22 +2318,22 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
       <div className="stats">
         <div className="stat-card featured">
           <div className="stat-top">Técnicos cadastrados<span className="stat-icon"><Icon name="users" /></span></div>
-          <div className="stat-value mono">{String(state.technicians.length).padStart(2, '0')}</div>
+          <div className="stat-value mono">{fmtNum(state.technicians.length)}</div>
           <div className="stat-foot">Com controle individual de estoque</div>
         </div>
         <div className="stat-card">
           <div className="stat-top">Com peças em mãos<span className="stat-icon"><Icon name="van" /></span></div>
-          <div className="stat-value mono">{String(state.technicians.filter(t => calcTotal(state, t.id) > 0).length).padStart(2, '0')}</div>
+          <div className="stat-value mono">{fmtNum(state.technicians.filter(t => calcTotal(state, t.id) > 0).length)}</div>
           <div className="stat-foot">Técnicos com estoque pessoal ativo</div>
         </div>
         <div className="stat-card">
           <div className="stat-top">Total com técnicos<span className="stat-icon"><Icon name="box" /></span></div>
-          <div className="stat-value mono">{String(state.technicians.reduce((acc, t) => acc + calcTotal(state, t.id), 0)).padStart(2, '0')}</div>
+          <div className="stat-value mono">{fmtNum(state.technicians.reduce((acc, t) => acc + calcTotal(state, t.id), 0))}</div>
           <div className="stat-foot">Unidades em posse da equipe hoje</div>
         </div>
         <div className="stat-card">
           <div className="stat-top">Peças utilizadas<span className="stat-icon"><Icon name="pin" /></span></div>
-          <div className="stat-value mono">{String(state.movements.filter(m => m.kind === 'use').reduce((acc, m) => acc + (m.qty || 0), 0)).padStart(2, '0')}</div>
+          <div className="stat-value mono">{fmtNum(state.movements.filter(m => m.kind === 'use').reduce((acc, m) => acc + (m.qty || 0), 0))}</div>
           <div className="stat-foot">Baixas rastreadas com localização</div>
         </div>
       </div>
@@ -2074,8 +2423,274 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
           </div>
         </section>
       )}
+      <TeamAnalyticsPanel state={state} />
     </>
   );
+
+  const exportAuditCSV = () => {
+    if (!auditLogs.length) {
+      showToast('Não há registros de auditoria para exportar.');
+      return;
+    }
+    const headers = ['Data', 'Hora', 'Autor', 'CPF/Login', 'Perfil', 'Categoria', 'Acao', 'Registro Afetado', 'Detalhes'];
+    const lines = [headers.join(';')];
+    const esc = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    auditLogs.forEach(a => {
+      lines.push(
+        [
+          fmtDate(a.ts),
+          fmtTime(a.ts),
+          a.actorName,
+          a.actorUsername || '—',
+          a.actorRole === 'ops' ? 'Controle Operacional' : a.actorRole === 'tech' ? 'Tecnico em Campo' : 'Plataforma',
+          a.category,
+          a.action,
+          a.target,
+          a.detail,
+        ]
+          .map(esc)
+          .join(';')
+      );
+    });
+    const blob = new Blob(['\uFEFF' + lines.join('\n')], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `gridstock-auditoria-${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+    showToast('Relatório de auditoria (.CSV) exportado com sucesso.');
+  };
+
+  const renderAuditPage = () => {
+    const auditCategoryMeta: Record<string, [string, string]> = {
+      auth: ['Acesso e Login', 'green'],
+      warehouse: ['Estoque', 'blue'],
+      product: ['Produto', 'purple'],
+      movement: ['Movimentação', 'amber'],
+      technician: ['Equipe Técnica', 'blue'],
+      user: ['Usuários e Contas', 'green'],
+      system: ['Sistema e Banco', 'red'],
+    };
+
+    const filteredAudit = auditLogs.filter(
+      a =>
+        (!filterCategory || a.category === filterCategory) &&
+        (!query ||
+          [a.actorName, a.actorUsername, a.action, a.target, a.detail, a.category]
+            .join(' ')
+            .toLowerCase()
+            .includes(query.toLowerCase()))
+    );
+
+    const AUDIT_PAGE_SIZE = 25;
+    const totalAuditPages = Math.max(1, Math.ceil(filteredAudit.length / AUDIT_PAGE_SIZE));
+    const safeAuditPage = Math.min(auditPage, totalAuditPages);
+    const pagedAudit = filteredAudit.slice(
+      (safeAuditPage - 1) * AUDIT_PAGE_SIZE,
+      safeAuditPage * AUDIT_PAGE_SIZE
+    );
+
+    const authCount = auditLogs.filter(a => a.category === 'auth' || a.category === 'user').length;
+    const catalogCount = auditLogs.filter(a => ['warehouse', 'product', 'technician'].includes(a.category)).length;
+    const opsCount = auditLogs.filter(a => a.category === 'movement' || a.category === 'system').length;
+
+    return (
+      <>
+        <div className="page-heading">
+          <div>
+            <h1>Auditoria da Empresa</h1>
+            <p>
+              Trilha completa de conformidade (LGPD): acompanhe quem fez cada ação, login, cadastro ou movimentação na operação.
+            </p>
+          </div>
+          <div className="heading-actions">
+            <button type="button" className="button secondary" onClick={exportAuditCSV}>
+              <Icon name="download" />Exportar auditoria (.CSV)
+            </button>
+            <button
+              type="button"
+              className="button"
+              onClick={() => {
+                setFormError('');
+                setConfirmDeleteUser(null);
+                setModal({ type: 'system' });
+              }}
+            >
+              <Icon name="users" />Gerenciar acessos
+            </button>
+          </div>
+        </div>
+
+        <div className="stats">
+          <div className="stat-card featured">
+            <div className="stat-top">
+              Eventos auditados<span className="stat-icon"><Icon name="shield" /></span>
+            </div>
+            <div className="stat-value mono">{fmtNum(auditLogs.length)}</div>
+            <div className="stat-foot">Registros imutáveis na trilha da empresa</div>
+          </div>
+          <div className="stat-card">
+            <div className="stat-top">
+              Acessos e contas<span className="stat-icon"><Icon name="users" /></span>
+            </div>
+            <div className="stat-value mono">{fmtNum(authCount)}</div>
+            <div className="stat-foot">Logins, criações de usuário e senhas</div>
+          </div>
+          <div className="stat-card">
+            <div className="stat-top">
+              Cadastros e estrutura<span className="stat-icon"><Icon name="box" /></span>
+            </div>
+            <div className="stat-value mono">{fmtNum(catalogCount)}</div>
+            <div className="stat-foot">Estoques, produtos e equipe técnica</div>
+          </div>
+          <div className="stat-card">
+            <div className="stat-top">
+              Operações de estoque<span className="stat-icon"><Icon name="arrows" /></span>
+            </div>
+            <div className="stat-value mono">{fmtNum(opsCount)}</div>
+            <div className="stat-foot">Entradas, retiradas, usos em OS e ajustes</div>
+          </div>
+        </div>
+
+        <section className="panel">
+          <div className="panel-head">
+            <div>
+              <h2>Registro Cronológico de Auditoria</h2>
+              <p>Todos os eventos realizados pelos administradores e técnicos desta empresa</p>
+            </div>
+            <Badge label="Rastreabilidade ativa" color="green" dot />
+          </div>
+
+          <div className="toolbar">
+            <div className="search">
+              <Icon name="search" />
+              <input
+                className="input"
+                aria-label="Buscar na auditoria"
+                placeholder="Operador, CPF, ação, produto, estoque ou detalhe..."
+                value={query}
+                onChange={e => {
+                  setQuery(e.target.value);
+                  setAuditPage(1);
+                }}
+              />
+            </div>
+            <select
+              aria-label="Filtrar categoria da auditoria"
+              value={filterCategory}
+              onChange={e => {
+                setFilterCategory(e.target.value);
+                setAuditPage(1);
+              }}
+            >
+              <option value="">Todas as categorias</option>
+              <option value="auth">Acessos e Logins</option>
+              <option value="user">Usuários e Permissões</option>
+              <option value="warehouse">Estoques</option>
+              <option value="product">Produtos</option>
+              <option value="movement">Movimentações</option>
+              <option value="technician">Equipe Técnica</option>
+              <option value="system">Sistema e Banco</option>
+            </select>
+          </div>
+
+          {pagedAudit.length > 0 ? (
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Data / Hora</th>
+                    <th>Operador / Autor</th>
+                    <th>Categoria</th>
+                    <th>Ação realizada</th>
+                    <th>Alvo / Registro</th>
+                    <th>Detalhes auditados</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {pagedAudit.map(a => {
+                    const [catLabel, catColor] = auditCategoryMeta[a.category] || [a.category, ''];
+                    return (
+                      <tr key={a.id}>
+                        <td className="mono">
+                          <strong>{fmtDate(a.ts)}</strong>
+                          <span className="cell-sub">{fmtTime(a.ts)}</span>
+                        </td>
+                        <td>
+                          <strong>{a.actorName}</strong>
+                          <span className="cell-sub">
+                            {a.actorRole === 'ops'
+                              ? 'Administrador / Operação'
+                              : a.actorRole === 'tech'
+                              ? 'Técnico em campo'
+                              : 'Plataforma'}
+                            {a.actorUsername ? ` · @${a.actorUsername}` : ''}
+                          </span>
+                        </td>
+                        <td>
+                          <Badge label={catLabel} color={catColor} />
+                        </td>
+                        <td>
+                          <strong>{a.action}</strong>
+                        </td>
+                        <td>
+                          <strong>{a.target || '—'}</strong>
+                        </td>
+                        <td style={{ whiteSpace: 'normal', maxWidth: 360 }}>
+                          {a.detail || '—'}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="empty">
+              <Icon name="shield" />
+              <div>Nenhum evento encontrado para este filtro.</div>
+              <p>Limpe a busca ou selecione outra categoria para visualizar toda a trilha de auditoria.</p>
+            </div>
+          )}
+
+          <div className="table-footer" style={{ flexWrap: 'wrap', gap: 10 }}>
+            <span>
+              {filteredAudit.length}{' '}
+              {filteredAudit.length === 1 ? 'evento auditado' : 'eventos auditados'} · Página{' '}
+              {safeAuditPage} de {totalAuditPages}
+            </span>
+            {totalAuditPages > 1 ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <button
+                  type="button"
+                  className="button secondary"
+                  style={{ padding: '5px 10px', fontSize: '.78rem' }}
+                  disabled={safeAuditPage <= 1}
+                  onClick={() => setAuditPage(Math.max(1, safeAuditPage - 1))}
+                >
+                  ← Anterior
+                </button>
+                <button
+                  type="button"
+                  className="button secondary"
+                  style={{ padding: '5px 10px', fontSize: '.78rem' }}
+                  disabled={safeAuditPage >= totalAuditPages}
+                  onClick={() => setAuditPage(Math.min(totalAuditPages, safeAuditPage + 1))}
+                >
+                  Próxima →
+                </button>
+              </div>
+            ) : (
+              <span>Ordem cronológica (mais recentes primeiro)</span>
+            )}
+          </div>
+        </section>
+      </>
+    );
+  };
 
   const renderDailyDepartures = (technicianId?: string) => {
     const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Fortaleza' });
@@ -2333,7 +2948,9 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
 
       const handleMovementSubmit = async (ev: React.FormEvent) => {
         ev.preventDefault();
+        if (submitting) return;
         setFormError('');
+        setSubmitting(true);
         try {
           const payload: Record<string, unknown> = {
             kind,
@@ -2353,12 +2970,16 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
             payload.corridor = moveCorridor;
             payload.shelf = moveShelf;
           }
+          if (moveSerial.trim()) payload.serial = moveSerial.trim();
+          if (movePhoto) payload.photo = movePhoto;
           const res = await apiCall('POST', '/api/movements', payload);
           applyServerPayload(res);
           setModal(null);
           showToast(`${kind === 'count' ? 'Contagem atualizada' : `${kindMap[kind][0]} registrada`}. Saldos atualizados.`);
         } catch (err) {
           setFormError(err instanceof Error ? err.message : 'Erro na movimentação.');
+        } finally {
+          setSubmitting(false);
         }
       };
 
@@ -2423,7 +3044,17 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
                   )
                 )}
                 <div className="field">
-                  <label htmlFor="move-part">Peça</label>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <label htmlFor="move-part">Peça</label>
+                    <button
+                      type="button"
+                      className="text-link"
+                      style={{ fontSize: '.78rem' }}
+                      onClick={() => setScannerTarget('movement-part')}
+                    >
+                      <Icon name="qr" /> Bipar QR Code da peça
+                    </button>
+                  </div>
                   <select
                     id="move-part"
                     value={movePartId}
@@ -2626,6 +3257,58 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
                     </div>
                   </>
                 )}
+                {['use', 'withdraw', 'return', 'entry'].includes(kind) && (
+                  <div className="form-grid">
+                    <div className="field">
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <label htmlFor="move-serial">Nº de Série / MAC (opcional)</label>
+                        <button
+                          type="button"
+                          className="text-link"
+                          style={{ fontSize: '.76rem' }}
+                          onClick={() => setScannerTarget('movement-serial')}
+                        >
+                          <Icon name="search" /> Bipar série
+                        </button>
+                      </div>
+                      <input
+                        className="input"
+                        id="move-serial"
+                        value={moveSerial}
+                        onChange={e => setMoveSerial(e.target.value)}
+                        placeholder="Ex.: SN:FHTT12345678 ou MAC"
+                        maxLength={120}
+                      />
+                    </div>
+                    <div className="field">
+                      <label htmlFor="move-photo">Foto / Comprovante da OS (opcional)</label>
+                      <input
+                        className="input"
+                        id="move-photo"
+                        type="file"
+                        accept="image/*"
+                        onChange={async e => {
+                          const f = e.target.files?.[0];
+                          if (!f) {
+                            setMovePhoto('');
+                            return;
+                          }
+                          try {
+                            const dataUrl = await compressPhotoFile(f);
+                            setMovePhoto(dataUrl);
+                          } catch (err) {
+                            setFormError(err instanceof Error ? err.message : 'Erro ao processar foto.');
+                          }
+                        }}
+                      />
+                      {movePhoto && (
+                        <small style={{ color: 'var(--green)' }}>
+                          ✓ Foto anexada e comprimida pronta para envio.
+                        </small>
+                      )}
+                    </div>
+                  </div>
+                )}
                 <div className="field">
                   <label htmlFor="move-note">
                     {kind === 'return'
@@ -2658,8 +3341,8 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
                 </div>
               </div>
               <div className="modal-footer">
-                <button className="button secondary" type="button" onClick={() => setModal(null)}>Cancelar</button>
-                <button className="button" type="submit"><Icon name="check" />{submitLabel}</button>
+                <button className="button secondary" type="button" disabled={submitting} onClick={() => setModal(null)}>Cancelar</button>
+                <button className="button" type="submit" disabled={submitting}><Icon name="check" />{submitting ? 'Salvando...' : submitLabel}</button>
               </div>
             </form>
           </section>
@@ -2936,7 +3619,9 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
             <form
               onSubmit={async ev => {
                 ev.preventDefault();
+                if (submitting) return;
                 setFormError('');
+                setSubmitting(true);
                 const fd = Object.fromEntries(new FormData(ev.currentTarget));
                 try {
                   const res = await apiCall('POST', '/api/warehouses', fd);
@@ -2947,6 +3632,8 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
                   showToast(editing ? 'Estoque atualizado com sucesso.' : 'Estoque cadastrado. Pronto para receber produtos.');
                 } catch (err) {
                   setFormError(err instanceof Error ? err.message : 'Erro ao salvar estoque.');
+                } finally {
+                  setSubmitting(false);
                 }
               }}
             >
@@ -3004,8 +3691,8 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
                     <Icon name="trash" />Excluir
                   </button>
                 )}
-                <button type="button" className="button secondary" onClick={() => setModal(null)}>Cancelar</button>
-                <button type="submit" className="button"><Icon name="check" />{editing ? 'Salvar alterações' : 'Salvar estoque'}</button>
+                <button type="button" className="button secondary" disabled={submitting} onClick={() => setModal(null)}>Cancelar</button>
+                <button type="submit" className="button" disabled={submitting}><Icon name="check" />{submitting ? 'Salvando...' : editing ? 'Salvar alterações' : 'Salvar estoque'}</button>
               </div>
             </form>
           </section>
@@ -3031,7 +3718,9 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
             <form
               onSubmit={async ev => {
                 ev.preventDefault();
+                if (submitting) return;
                 setFormError('');
+                setSubmitting(true);
                 const fd = Object.fromEntries(new FormData(ev.currentTarget));
                 try {
                   const res = await apiCall('POST', '/api/products', fd);
@@ -3042,6 +3731,8 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
                   showToast(editing ? 'Produto e endereço atualizados.' : 'Produto cadastrado com corredor e prateleira.');
                 } catch (err) {
                   setFormError(err instanceof Error ? err.message : 'Erro ao salvar produto.');
+                } finally {
+                  setSubmitting(false);
                 }
               }}
             >
@@ -3106,8 +3797,8 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
                 {!editing && (
                   <div
                     style={{
-                      background: '#f4f8f5',
-                      border: '1px solid #cfe0d6',
+                      background: 'var(--soft)',
+                      border: '1px solid var(--line)',
                       borderRadius: 8,
                       padding: '12px 14px',
                       marginBottom: 16,
@@ -3148,8 +3839,27 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
                 <input type="hidden" name="id" value={p?.id || ''} />
                 <div className="form-grid">
                   <div className="field">
-                    <label htmlFor="product-sku">Código / SKU *</label>
-                    <input className="input" name="sku" id="product-sku" defaultValue={p?.sku || ''} placeholder="Ex.: GS-009" maxLength={50} required />
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <label htmlFor="product-sku">Código / SKU *</label>
+                      <button
+                        type="button"
+                        className="text-link"
+                        style={{ fontSize: '.76rem' }}
+                        onClick={() => setScannerTarget('product-sku')}
+                      >
+                        <Icon name="search" /> Bipar código
+                      </button>
+                    </div>
+                    <input
+                      className="input"
+                      name="sku"
+                      id="product-sku"
+                      value={prodSkuInput}
+                      onChange={e => setProdSkuInput(e.target.value)}
+                      placeholder="Ex.: GS-009"
+                      maxLength={50}
+                      required
+                    />
                   </div>
                   <div className="field">
                     <label htmlFor="product-category">Categoria *</label>
@@ -3164,6 +3874,32 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
                 <div className="field">
                   <label htmlFor="product-name">Nome do produto *</label>
                   <input className="input" name="name" id="product-name" defaultValue={p?.name || ''} placeholder="Ex.: Conector RJ45 CAT6" maxLength={100} required />
+                </div>
+                <div className="form-grid">
+                  <div className="field">
+                    <label htmlFor="product-cost">Custo unitário R$ (opcional)</label>
+                    <input
+                      className="input"
+                      name="unitCost"
+                      id="product-cost"
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      defaultValue={p?.unitCost ?? ''}
+                      placeholder="Ex.: 145.90"
+                    />
+                  </div>
+                  <div className="field">
+                    <label htmlFor="product-supplier">Fornecedor principal (opcional)</label>
+                    <input
+                      className="input"
+                      name="supplier"
+                      id="product-supplier"
+                      defaultValue={p?.supplier || ''}
+                      placeholder="Ex.: Intelbras / Furukawa"
+                      maxLength={120}
+                    />
+                  </div>
                 </div>
                 <div className="form-grid">
                   <div className="field">
@@ -3231,6 +3967,43 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
                     />
                   </div>
                 </div>
+                {prodSkuInput.trim() && (
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 14,
+                      padding: '12px 14px',
+                      borderRadius: 12,
+                      background: 'var(--soft)',
+                      border: '1px solid var(--line)',
+                      marginBottom: 16,
+                    }}
+                  >
+                    <QrCodeSvg value={prodSkuInput.trim().toUpperCase()} size={72} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <strong style={{ display: 'block', fontSize: 12 }}>
+                        QR Code gerado automaticamente ({prodSkuInput.trim().toUpperCase()})
+                      </strong>
+                      <small className="muted" style={{ display: 'block', marginTop: 2 }}>
+                        Pronto para etiqueta de prateleira e leitura de retirada rápida para o técnico.
+                      </small>
+                    </div>
+                    {editing && p && (
+                      <button
+                        type="button"
+                        className="button secondary"
+                        style={{ padding: '6px 10px', fontSize: 11, minHeight: 32 }}
+                        onClick={() => {
+                          setModal(null);
+                          setQrModalPartId(p.id);
+                        }}
+                      >
+                        <Icon name="qr" /> Imprimir QR
+                      </button>
+                    )}
+                  </div>
+                )}
                 <div className="form-note">
                   <Icon name="help" />
                   {editing
@@ -3252,8 +4025,8 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
                     <Icon name="trash" />Excluir
                   </button>
                 )}
-                <button type="button" className="button secondary" onClick={() => setModal(null)}>Cancelar</button>
-                <button type="submit" className="button"><Icon name="check" />{editing ? 'Salvar alterações' : 'Salvar produto'}</button>
+                <button type="button" className="button secondary" disabled={submitting} onClick={() => setModal(null)}>Cancelar</button>
+                <button type="submit" className="button" disabled={submitting}><Icon name="check" />{submitting ? 'Salvando...' : editing ? 'Salvar alterações' : 'Salvar produto'}</button>
               </div>
             </form>
           </section>
@@ -3679,7 +4452,7 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
                 </table>
               </div>
               <form
-                style={{ background: '#fafbf8', border: '1px solid var(--line)', borderRadius: 8, padding: 16, marginBottom: 22 }}
+                style={{ background: 'var(--soft)', border: '1px solid var(--line)', borderRadius: 8, padding: 16, marginBottom: 22 }}
                 onSubmit={async ev => {
                   ev.preventDefault();
                   setFormError('');
@@ -3768,6 +4541,176 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
       );
     }
 
+    if (modal.type === 'profile') {
+      return (
+        <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setModal(null)}>
+          <section className="modal" role="dialog" aria-modal="true" aria-labelledby="profile-modal-title">
+            <div className="modal-header">
+              <div>
+                <h2 id="profile-modal-title">Minha Conta e Perfil</h2>
+                <p>Atualize seu nome de exibição, CPF de acesso ou senha e gerencie sua sessão ativa.</p>
+              </div>
+              <button className="modal-close" type="button" onClick={() => setModal(null)} aria-label="Fechar janela">
+                <Icon name="close" />
+              </button>
+            </div>
+            <form
+              onSubmit={async ev => {
+                ev.preventDefault();
+                setFormError('');
+                setSubmitting(true);
+                const fd = Object.fromEntries(new FormData(ev.currentTarget));
+                try {
+                  const res = await apiCall('POST', '/api/users', {
+                    id: currentUser.id,
+                    name: fd.name,
+                    username: fd.username,
+                    password: fd.password || '',
+                    role: currentUser.role,
+                    technicianId: currentUser.technicianId || undefined,
+                  });
+                  applyServerPayload(res);
+                  if (res.savedUser) {
+                    setCurrentUser(res.savedUser);
+                  }
+                  setModal(null);
+                  showToast('Dados da sua conta atualizados com sucesso.');
+                } catch (err) {
+                  setFormError(err instanceof Error ? err.message : 'Erro ao atualizar perfil.');
+                } finally {
+                  setSubmitting(false);
+                }
+              }}
+            >
+              <div className="modal-body">
+                {formError && <div className="error" role="alert">{formError}</div>}
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 14,
+                    padding: '14px 16px',
+                    borderRadius: 12,
+                    background: 'var(--soft)',
+                    border: '1px solid var(--line)',
+                    marginBottom: 20,
+                  }}
+                >
+                  <div
+                    className={`avatar ${ops ? 'mint' : currentTech?.color || 'mint'}`}
+                    style={{ width: 46, height: 46, fontSize: 14, borderRadius: 14 }}
+                  >
+                    {userInitials}
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <strong style={{ display: 'block', fontSize: 14 }}>{userName}</strong>
+                    <span className="small muted" style={{ display: 'block', marginTop: 2 }}>
+                      {userRoleLabel} · CPF @{currentUser.username}
+                    </span>
+                  </div>
+                  <Badge label="Sessão ativa" color="green" dot />
+                </div>
+
+                <div className="form-grid">
+                  <div className="field">
+                    <label htmlFor="prof-name">Seu nome de exibição *</label>
+                    <input
+                      className="input"
+                      id="prof-name"
+                      name="name"
+                      defaultValue={currentUser.name}
+                      placeholder="Ex.: Controle Operacional"
+                      maxLength={80}
+                      required
+                    />
+                  </div>
+                  <div className="field">
+                    <label htmlFor="prof-cpf">CPF de acesso *</label>
+                    <input
+                      className="input"
+                      id="prof-cpf"
+                      name="username"
+                      defaultValue={currentUser.username}
+                      inputMode="numeric"
+                      maxLength={14}
+                      placeholder="000.000.000-00"
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div className="field">
+                  <label htmlFor="prof-pass">Nova senha (deixe em branco para manter a atual)</label>
+                  <input
+                    className="input"
+                    id="prof-pass"
+                    name="password"
+                    type="password"
+                    autoComplete="new-password"
+                    minLength={8}
+                    placeholder="Mínimo de 8 caracteres para trocar a senha"
+                  />
+                  <small>Ao alterar sua senha, outras sessões abertas em outros dispositivos serão encerradas por segurança.</small>
+                </div>
+
+                {isOpsUser && (
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: 10,
+                      flexWrap: 'wrap',
+                      padding: '12px 14px',
+                      borderRadius: 10,
+                      border: '1px solid var(--line)',
+                      marginBottom: 8,
+                    }}
+                  >
+                    <div>
+                      <strong style={{ fontSize: 12, display: 'block' }}>Administração e Equipe</strong>
+                      <small className="muted">Gerenciar outros usuários, permissões ou banco de dados.</small>
+                    </div>
+                    <button
+                      type="button"
+                      className="button secondary"
+                      onClick={() => {
+                        setFormError('');
+                        setConfirmDeleteUser(null);
+                        setModal({ type: 'system' });
+                      }}
+                    >
+                      <Icon name="users" /> Acessos e Banco
+                    </button>
+                  </div>
+                )}
+              </div>
+              <div className="modal-footer" style={{ justifyContent: 'space-between' }}>
+                <button
+                  type="button"
+                  className="button danger"
+                  onClick={() => {
+                    setModal(null);
+                    handleLogout();
+                  }}
+                >
+                  <Icon name="logout" /> Sair da conta
+                </button>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button type="button" className="button secondary" disabled={submitting} onClick={() => setModal(null)}>
+                    Cancelar
+                  </button>
+                  <button type="submit" className="button" disabled={submitting}>
+                    <Icon name="check" /> {submitting ? 'Salvando...' : 'Salvar perfil'}
+                  </button>
+                </div>
+              </div>
+            </form>
+          </section>
+        </div>
+      );
+    }
+
     if (modal.type === 'reset') {
       const isSeed = modal.mode === 'seed';
       return (
@@ -3835,9 +4778,24 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
         {sidebarOpen && <button className="sidebar-backdrop" aria-label="Fechar navegação" onClick={() => setSidebarOpen(false)} />}
         <aside className={`sidebar ${sidebarOpen ? 'open' : ''}`} id="sidebar" aria-label="Menu principal">
           <button className="sidebar-close icon-button" aria-label="Fechar menu" onClick={() => setSidebarOpen(false)}><Icon name="close" /></button>
-          <div className="brand">
+          <div className="brand" title={company?.name || 'GRIDSTOCK'}>
             <img className="brand-mark" src="/gridstock-mark.svg" width={40} height={40} alt="" />
-            <span className="brand-wordmark">{company ? company.name.toUpperCase() : <>GRID<span>STOCK</span><i aria-hidden="true">.</i></>}</span>
+            <span
+              className={`brand-wordmark ${company ? 'company-wordmark' : ''}`}
+              data-length={
+                company
+                  ? company.name.length > 22
+                    ? 'xl'
+                    : company.name.length > 14
+                    ? 'lg'
+                    : company.name.length > 9
+                    ? 'md'
+                    : 'sm'
+                  : undefined
+              }
+            >
+              {company ? company.name.toUpperCase() : <>GRID<span>STOCK</span><i aria-hidden="true">.</i></>}
+            </span>
           </div>
           <div className="workspace">
             <div className="workspace-icon"><Icon name="box" /></div>
@@ -3917,17 +4875,33 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
                 <span className="nav-count">{state.technicians.length}</span>
               </button>
             )}
+            {ops && (
+              <button
+                className={`nav-button ${page === 'audit' ? 'active' : ''}`}
+                aria-label="Auditoria"
+                aria-current={page === 'audit' ? 'page' : undefined}
+                title="Auditoria da empresa"
+                onClick={() => navigate('audit')}
+              >
+                <Icon name="shield" />
+                <span>Auditoria</span>
+                <span className="nav-count">{auditLogs.length}</span>
+              </button>
+            )}
           </nav>
           <div className="sidebar-help">
             <Icon name="shield" />
             <strong>{isOpsUser ? (company ? 'Administração da empresa' : 'Administração e acessos') : 'Operação rastreada'}</strong>
             <p>
               {isOpsUser
-                ? 'Gerencie usuários, logins da equipe e manutenção do banco de dados.'
+                ? 'Gerencie usuários, trilha de auditoria e manutenção do banco de dados.'
                 : 'Registre chegadas, aplicações em OS e devoluções em tempo real.'}
             </p>
             {isOpsUser ? (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <button onClick={() => navigate('audit')}>
+                  Trilha de auditoria <Icon name="arrow" />
+                </button>
                 <button onClick={() => { setFormError(''); setConfirmDeleteUser(null); setModal({ type: 'system' }); }}>
                   Acessos e banco de dados <Icon name="arrow" />
                 </button>
@@ -3945,12 +4919,21 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
             )}
           </div>
           <div className="profile">
-            <div className={`avatar ${ops ? 'mint' : currentTech?.color || 'mint'}`}>{userInitials}</div>
-            <div>
-              <strong>{userName}</strong>
-              <small>{userRoleLabel}</small>
-            </div>
             <button
+              type="button"
+              className="profile-trigger"
+              onClick={() => { setFormError(''); setModal({ type: 'profile' }); }}
+              title={`${userName} (${userRoleLabel}) · Abrir minha conta e editar perfil`}
+              aria-label="Abrir minha conta e editar perfil"
+            >
+              <div className={`avatar ${ops ? 'mint' : currentTech?.color || 'mint'}`}>{userInitials}</div>
+              <div className="profile-text">
+                <strong>{userName}</strong>
+                <small>{userRoleLabel}</small>
+              </div>
+            </button>
+            <button
+              type="button"
               className="icon-button"
               onClick={handleLogout}
               title="Sair da conta"
@@ -3973,7 +4956,11 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
               <Icon name="menu" />
             </button>
             <div className="breadcrumb">
-              <span className="breadcrumb-home"><img src="/gridstock-mark.svg" width={22} height={22} alt="" /> {company?.name.toUpperCase() || 'GRIDSTOCK'}</span> <Icon name="chevron" />
+              <span className="breadcrumb-home" title={company?.name || 'GRIDSTOCK'}>
+                <img src="/gridstock-mark.svg" width={22} height={22} alt="" />
+                <span className="breadcrumb-company">{company?.name.toUpperCase() || 'GRIDSTOCK'}</span>
+              </span>{' '}
+              <Icon name="chevron" />
               <strong>{pageTitle}</strong>
             </div>
             <div className="top-actions">
@@ -4005,6 +4992,7 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
               ) : (
                 <Badge label={userRoleLabel} color="green" dot />
               )}
+              <ThemeToggle />
               <button
                 className="icon-button"
                 onClick={() => {
@@ -4028,35 +5016,321 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
                   <Icon name="users" />
                 </button>
               )}
-              <div className="avatar top-avatar">{userInitials}</div>
+              <div style={{ position: 'relative' }}>
+                <button
+                  type="button"
+                  className="avatar top-avatar"
+                  onClick={() => setQuickMenuOpen(prev => !prev)}
+                  title="Central Rápida do Turno e Atalhos"
+                  aria-label="Abrir central rápida do turno e atalhos"
+                  aria-expanded={quickMenuOpen}
+                >
+                  {userInitials}
+                </button>
+                {quickMenuOpen && (
+                  <>
+                    <div
+                      style={{ position: 'fixed', inset: 0, zIndex: 80 }}
+                      onClick={() => setQuickMenuOpen(false)}
+                    />
+                    <div
+                      className="quick-operator-popover"
+                      role="menu"
+                      aria-label="Central rápida do operador"
+                    >
+                      <div className="quick-popover-head">
+                        <div>
+                          <span className="eyebrow" style={{ color: 'var(--green)', fontSize: 9 }}>
+                            RESUMO DO TURNO HOJE
+                          </span>
+                          <strong style={{ display: 'block', fontSize: 13, marginTop: 2 }}>
+                            {company?.name || 'GRIDSTOCK'} · {ops ? 'Operação' : 'Campo'}
+                          </strong>
+                        </div>
+                        <Badge label="Online" color="green" dot />
+                      </div>
+
+                      <div className="quick-popover-metrics">
+                        <div>
+                          <small>HOJE</small>
+                          <strong>
+                            {
+                              state.movements.filter(
+                                m => new Date(m.ts).toDateString() === new Date().toDateString()
+                              ).length
+                            }{' '}
+                            <span>mov.</span>
+                          </strong>
+                        </div>
+                        <div>
+                          <small>ALERTAS</small>
+                          <strong style={{ color: warehouseLowAlerts.length + allAlerts.length > 0 ? 'var(--orange)' : undefined }}>
+                            {warehouseLowAlerts.length + allAlerts.length} <span>itens</span>
+                          </strong>
+                        </div>
+                        <div>
+                          <small>SINCRONIZADO</small>
+                          <strong>{fmtTime(state.updatedAt)}</strong>
+                        </div>
+                      </div>
+
+                      <div className="quick-popover-actions">
+                        <span className="quick-popover-label">ATALHOS DE 1 CLIQUE</span>
+                        {ops ? (
+                          <>
+                            <button
+                              type="button"
+                              role="menuitem"
+                              onClick={() => {
+                                setQuickMenuOpen(false);
+                                openMovementModal('entry');
+                              }}
+                            >
+                              <Icon name="in" />
+                              <span>Registrar entrada de estoque</span>
+                            </button>
+                            {companyConfig.transfers && (
+                              <button
+                                type="button"
+                                role="menuitem"
+                                onClick={() => {
+                                  setQuickMenuOpen(false);
+                                  openTransferModal();
+                                }}
+                              >
+                                <Icon name="arrows" />
+                                <span>Transferir entre estoques</span>
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              role="menuitem"
+                              onClick={() => {
+                                setQuickMenuOpen(false);
+                                setRestockModalOpen(true);
+                              }}
+                            >
+                              <Icon name="box" />
+                              <span>Gerar pedido de compra (Reposição)</span>
+                            </button>
+                            <button
+                              type="button"
+                              role="menuitem"
+                              onClick={() => {
+                                setQuickMenuOpen(false);
+                                setScannerTarget('quick-withdraw');
+                              }}
+                            >
+                              <Icon name="qr" />
+                              <span>Bipar QR Code p/ Retirada (Técnico)</span>
+                            </button>
+                            <button
+                              type="button"
+                              role="menuitem"
+                              onClick={() => {
+                                setQuickMenuOpen(false);
+                                exportCSV();
+                              }}
+                            >
+                              <Icon name="download" />
+                              <span>Exportar movimentações (.CSV)</span>
+                            </button>
+                            <button
+                              type="button"
+                              role="menuitem"
+                              onClick={() => {
+                                setQuickMenuOpen(false);
+                                navigate('audit');
+                              }}
+                            >
+                              <Icon name="shield" />
+                              <span>Auditoria da empresa ({auditLogs.length})</span>
+                            </button>
+                            <a
+                              href="/administracao"
+                              role="menuitem"
+                              onClick={() => setQuickMenuOpen(false)}
+                            >
+                              <Icon name="shield" />
+                              <span>Central de Administração (Empresas)</span>
+                            </a>
+                          </>
+                        ) : (
+                          <>
+                            <button
+                              type="button"
+                              role="menuitem"
+                              onClick={() => {
+                                setQuickMenuOpen(false);
+                                openMovementModal('departure', currentTech?.id || techId);
+                              }}
+                            >
+                              <Icon name="van" />
+                              <span>Informar saída do dia</span>
+                            </button>
+                            <button
+                              type="button"
+                              role="menuitem"
+                              onClick={() => {
+                                setQuickMenuOpen(false);
+                                openMovementModal('use', currentTech?.id || techId);
+                              }}
+                            >
+                              <Icon name="tool" />
+                              <span>Registrar uso de peça em OS</span>
+                            </button>
+                            <button
+                              type="button"
+                              role="menuitem"
+                              onClick={() => {
+                                setQuickMenuOpen(false);
+                                setScannerTarget('search');
+                              }}
+                            >
+                              <Icon name="search" />
+                              <span>Bipar código / Nº de Série</span>
+                            </button>
+                          </>
+                        )}
+                        <button
+                          type="button"
+                          role="menuitem"
+                          onClick={() => {
+                            setQuickMenuOpen(false);
+                            openLegalHub('accessibility');
+                          }}
+                        >
+                          <Icon name="shield" />
+                          <span>Acessibilidade e Teclado (Alt+A)</span>
+                        </button>
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
             </div>
           </header>
           <div className="content" id="main-content" tabIndex={-1}>
-            {ops ? (
-              page === 'overview' ? (
-                renderOverview()
-              ) : page === 'stock' ? (
-                renderStockPage()
-              ) : page === 'warehouses' ? (
-                renderWarehousesPage()
-              ) : page === 'products' ? (
-                renderProductsPage()
-              ) : page === 'movements' ? (
-                renderMovementsPage()
+            <div key={`${view}-${page}`} className="page-transition">
+              {ops ? (
+                page === 'overview' ? (
+                  renderOverview()
+                ) : page === 'stock' ? (
+                  renderStockPage()
+                ) : page === 'warehouses' ? (
+                  renderWarehousesPage()
+                ) : page === 'products' ? (
+                  renderProductsPage()
+                ) : page === 'movements' ? (
+                  renderMovementsPage()
+                ) : page === 'audit' ? (
+                  renderAuditPage()
+                ) : (
+                  renderTeamPage()
+                )
               ) : (
-                renderTeamPage()
-              )
-            ) : (
-              renderTechJourney()
-            )}
+                renderTechJourney()
+              )}
+            </div>
             <footer className="footer">
-              <span>GRIDSTOCK <span>© 2026</span> · Gestão de Estoque e Operação de Campo</span>
+              <div>
+                <span>GRIDSTOCK <span>© 2026</span> · Gestão de Estoque e Operação de Campo</span>
+                <LegalFooterLinks />
+              </div>
               <span><i className="live-dot" /> Banco de dados sincronizado · {fmtTime(state.updatedAt)}</span>
             </footer>
           </div>
         </main>
       </div>
       {renderModal()}
+      <BarcodeScannerModal
+        open={scannerTarget !== null}
+        title={
+          scannerTarget === 'quick-withdraw'
+            ? 'Retirada Rápida por QR Code'
+            : 'Leitor de Código de Barras / QR Code'
+        }
+        subtitle={
+          scannerTarget === 'quick-withdraw'
+            ? 'Aponte a câmera para o QR Code da peça para abrir o envio direto ao técnico.'
+            : 'Aponte a câmera para o código do equipamento, QR Code, MAC ou SKU.'
+        }
+        quickParts={
+          scannerTarget === 'quick-withdraw' || scannerTarget === 'movement-part'
+            ? state.parts
+            : undefined
+        }
+        onClose={() => setScannerTarget(null)}
+        onDetected={scanned => {
+          const cleanCode = scanned.replace(/^gridstock:/i, '').trim();
+          if (scannerTarget === 'quick-withdraw') {
+            const found = state.parts.find(
+              pt =>
+                pt.sku.toLowerCase() === cleanCode.toLowerCase() ||
+                pt.id.toLowerCase() === cleanCode.toLowerCase() ||
+                pt.name.toLowerCase().includes(cleanCode.toLowerCase())
+            );
+            if (found) {
+              const bestWh =
+                state.warehouses.find(w => (state.stock[w.id]?.[found.id] || 0) > 0)?.id ||
+                state.warehouses[0]?.id ||
+                '';
+              openMovementModal('withdraw', currentTech?.id || techId, found.id, bestWh);
+              showToast(`QR Code lido (${found.sku} · ${found.name}). Confirme o técnico e a quantidade!`);
+            } else {
+              showToast(`Nenhum produto com o QR Code "${cleanCode}" foi encontrado.`);
+            }
+          } else if (scannerTarget === 'search') {
+            if (!['stock', 'products', 'movements'].includes(page)) {
+              setPage('stock');
+            }
+            setQuery(cleanCode);
+            setMovementsPage(1);
+            showToast(`Código lido: ${cleanCode}`);
+          } else if (scannerTarget === 'product-sku') {
+            setProdSkuInput(cleanCode.toUpperCase());
+            showToast(`SKU preenchido: ${cleanCode.toUpperCase()}`);
+          } else if (scannerTarget === 'movement-serial') {
+            setMoveSerial(cleanCode);
+            showToast(`Nº de Série/MAC lido: ${cleanCode}`);
+          } else if (scannerTarget === 'movement-part') {
+            const found = state.parts.find(
+              pt =>
+                pt.sku.toLowerCase() === cleanCode.toLowerCase() ||
+                pt.id.toLowerCase() === cleanCode.toLowerCase() ||
+                pt.name.toLowerCase().includes(cleanCode.toLowerCase())
+            );
+            if (found) {
+              setMovePartId(found.id);
+              const bestWh =
+                state.warehouses.find(w => (state.stock[w.id]?.[found.id] || 0) > 0)?.id ||
+                moveWarehouseId;
+              if (bestWh) setMoveWarehouseId(bestWh);
+              showToast(`Peça selecionada via QR Code: ${found.sku} · ${found.name}`);
+            } else {
+              showToast(`Nenhum produto com o código "${cleanCode}" foi encontrado.`);
+            }
+          }
+        }}
+      />
+      <ProductQrModal
+        open={qrModalPartId !== null}
+        partId={qrModalPartId}
+        state={state}
+        onClose={() => setQrModalPartId(null)}
+        onQuickWithdraw={pid => {
+          const bestWh =
+            state.warehouses.find(w => (state.stock[w.id]?.[pid] || 0) > 0)?.id ||
+            state.warehouses[0]?.id ||
+            '';
+          openMovementModal('withdraw', currentTech?.id || techId, pid, bestWh);
+        }}
+      />
+      <RestockOrderModal
+        open={restockModalOpen}
+        state={state}
+        onClose={() => setRestockModalOpen(false)}
+      />
       <div id="toast" role="status" aria-live="polite" className={toastMsg ? 'show' : ''}>
         {toastMsg}
       </div>

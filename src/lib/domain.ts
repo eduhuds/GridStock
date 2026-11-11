@@ -6,6 +6,8 @@ export interface Part {
   unit: string;
   min: number;
   baseMin: number;
+  unitCost?: number;
+  supplier?: string;
 }
 
 export interface Warehouse {
@@ -69,6 +71,8 @@ export interface Movement {
   operator?: string;
   before?: number;
   delta?: number;
+  serial?: string;
+  photo?: string;
 }
 
 export interface GridStockState {
@@ -319,12 +323,29 @@ export function saveProduct(s: GridStockState, a: Record<string, unknown>, now =
     throw new Error('Já existe um produto com este código.');
   }
   const qty = editing ? 0 : integer(a.qty, true);
+  const rawCost = a.unitCost !== undefined && a.unitCost !== null && a.unitCost !== '' ? Number(String(a.unitCost).replace(',', '.')) : 0;
+  const unitCost = Number.isFinite(rawCost) && rawCost > 0 ? Math.round(rawCost * 100) / 100 : 0;
+  const supplier = clean(a.supplier, 120);
   let p: Part;
   if (editing && existing) {
     p = existing;
     Object.assign(p, { sku, name, category, baseMin, min });
+    if (unitCost > 0) p.unitCost = unitCost;
+    else delete p.unitCost;
+    if (supplier) p.supplier = supplier;
+    else delete p.supplier;
   } else {
-    p = { id: `p${++s.productSeq}`, sku, name, category, baseMin, min, unit: 'un.' };
+    p = {
+      id: `p${++s.productSeq}`,
+      sku,
+      name,
+      category,
+      baseMin,
+      min,
+      unit: 'un.',
+      ...(unitCost > 0 ? { unitCost } : {}),
+      ...(supplier ? { supplier } : {}),
+    };
     s.parts.push(p);
     Object.values(s.stock).forEach(st => {
       st[p.id] = 0;
@@ -562,6 +583,12 @@ export function deleteTechnician(s: GridStockState, id: string, now = Date.now()
 
 export function apply(s: GridStockState, a: Record<string, unknown>, now = Date.now()): Movement {
   const kind = a.kind as MovementKind;
+  const serial = clean(a.serial, 120);
+  const photo = clean(a.photo, 200000);
+  const extraMeta = {
+    ...(serial ? { serial } : {}),
+    ...(photo ? { photo } : {}),
+  };
   if (kind === 'stockout') {
     const w = warehouse(s, a.warehouse);
     const p = s.parts.find(x => x.id === a.part);
@@ -572,7 +599,7 @@ export function apply(s: GridStockState, a: Record<string, unknown>, now = Date.
     const before = s.stock[w.id]?.[p.id] || 0;
     if (qty > before) throw new Error(`O estoque possui apenas ${before} unidades disponíveis.`);
     s.stock[w.id][p.id] = before - qty;
-    return record(s, { kind, warehouse: w.id, part: p.id, qty, before, delta: -qty, note, operator: clean(a.operator, 100) || 'Operação' }, now);
+    return record(s, { kind, warehouse: w.id, part: p.id, qty, before, delta: -qty, note, operator: clean(a.operator, 100) || 'Operação', ...extraMeta }, now);
   }
   if (kind === 'entry') {
     const w = warehouse(s, a.warehouse);
@@ -591,7 +618,7 @@ export function apply(s: GridStockState, a: Record<string, unknown>, now = Date.
     s.locations[w.id][p.id] = { ...toAddress };
     return record(
       s,
-      { kind: 'entry', part: p.id, qty, warehouse: w.id, toAddress: { ...toAddress }, note, operator },
+      { kind: 'entry', part: p.id, qty, warehouse: w.id, toAddress: { ...toAddress }, note, operator, ...extraMeta },
       now
     );
   }
@@ -629,6 +656,7 @@ export function apply(s: GridStockState, a: Record<string, unknown>, now = Date.
         toAddress: { ...toAddress },
         note,
         operator,
+        ...extraMeta,
       },
       now
     );
@@ -636,7 +664,13 @@ export function apply(s: GridStockState, a: Record<string, unknown>, now = Date.
 
   const t = s.technicians.find(x => x.id === a.technician);
   if (!t) throw new Error('Selecione um técnico válido.');
-  const event: Omit<Movement, 'id' | 'ts'> = { kind, technician: t.id, note: clean(a.note), operator: clean(a.operator, 100) || t.name };
+  const event: Omit<Movement, 'id' | 'ts'> = {
+    kind,
+    technician: t.id,
+    note: clean(a.note),
+    operator: clean(a.operator, 100) || t.name,
+    ...extraMeta,
+  };
 
   if (kind === 'arrival') {
     if (t.status === 'working') throw new Error('A chegada neste atendimento já foi registrada.');
