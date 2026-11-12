@@ -8,7 +8,7 @@ async function handleGET(req: Request) {
   try {
     await pullPlatformFromSupabase();
     requireMaster(req);
-    const overview = platformOverview();
+    const overview = platformOverview(req);
     return Response.json(overview);
   } catch {
     return Response.json({ error: 'Entre com sua conta de administrador geral.' }, { status: 403 });
@@ -25,7 +25,7 @@ async function handlePOST(req: Request) {
   try {
     const company = saveCompany(await req.json());
     await pushPlatformToSupabase(company.id);
-    return Response.json({ company, ...platformOverview() });
+    return Response.json({ company, ...platformOverview(req) });
   } catch (e) {
     return Response.json({ error: e instanceof Error ? e.message : 'Não foi possível salvar.' }, { status: 400 });
   }
@@ -53,7 +53,7 @@ async function handlePATCH(req: Request) {
     } else {
       throw new Error('Ação inválida.');
     }
-    return Response.json(platformOverview());
+    return Response.json(platformOverview(req));
   } catch (e) {
     return Response.json({ error: e instanceof Error ? e.message : 'Falha na ação.' }, { status: 400 });
   }

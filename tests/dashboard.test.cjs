@@ -39,3 +39,19 @@ test('dashboard mantém ordem cronológica e soma unidades em 30 dias', () => {
   assert.equal(days[29].withdrawn, 7);
   assert.equal(dailyStockActivity([], 7, now).every(day => day.withdrawn === 0 && day.used === 0), true);
 });
+
+test('janela inclui a meia-noite de Fortaleza e ignora registros anteriores e inválidos', () => {
+  const now = Date.parse('2026-11-05T12:00:00Z');
+  const start = Date.parse('2026-10-30T03:00:00Z');
+  const days = dailyStockActivity([
+    { kind: 'use', ts: start - 1, qty: 100 },
+    { kind: 'use', ts: start, qty: 2 },
+    { kind: 'withdraw', ts: start + 1, qty: 3 },
+    { kind: 'use', ts: NaN, qty: 100 },
+    { kind: 'use', ts: Infinity, qty: 100 },
+  ], 7, now);
+  assert.equal(days[0].date, '2026-10-30');
+  assert.equal(days[0].used, 2);
+  assert.equal(days[0].withdrawn, 3);
+  assert.equal(days.reduce((sum, day) => sum + day.used, 0), 2);
+});

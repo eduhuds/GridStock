@@ -1,9 +1,12 @@
 'use client';
 
-import StockWorkspace from './StockWorkspace';
+import dynamic from 'next/dynamic';
+import { useRouter } from 'next/navigation';
+import BrandLoading from './BrandLoading';
+const StockWorkspace = dynamic(() => import('./StockWorkspace'), { loading: () => <BrandLoading compact /> });
 import { defaultConfig, type CompanyConfig } from '@/lib/companyConfig';
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useTransition, useMemo } from 'react';
 import {
   GridStockState,
   Part,
@@ -18,15 +21,19 @@ import {
   alerts as calcAlerts,
 } from '@/lib/domain';
 import type { UserAccount, CompanyAuditEntry } from '@/lib/db';
-import DashboardCharts from './DashboardCharts';
+const DashboardCharts = dynamic(() => import('./DashboardCharts'), { loading: () => <BrandLoading compact /> });
 import ThemeToggle from './ThemeToggle';
-import BarcodeScannerModal from './BarcodeScannerModal';
-import RestockOrderModal from './RestockOrderModal';
-import ProductQrModal, { QrCodeSvg } from './ProductQrModal';
+const BarcodeScannerModal = dynamic(() => import('./BarcodeScannerModal'), { loading: () => <BrandLoading compact /> });
+const RestockOrderModal = dynamic(() => import('./RestockOrderModal'), { loading: () => <BrandLoading compact /> });
+const ProductQrModal = dynamic(() => import('./ProductQrModal'));
+const QrCodeSvg = dynamic(() => import('./ProductQrModal').then(m => m.QrCodeSvg));
 import { LegalFooterLinks, openLegalHub } from './LegalAccessibilityHub';
-import TeamAnalyticsPanel from './TeamAnalyticsPanel';
-import { parseXlsxBytes } from '@/lib/xlsx';
+const TeamAnalyticsPanel = dynamic(() => import('./TeamAnalyticsPanel'), { loading: () => <BrandLoading compact /> });
 
+
+const numberFormatter = new Intl.NumberFormat('pt-BR');
+const timeFormatter = new Intl.DateTimeFormat('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Fortaleza' });
+const dateFormatter = new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: '2-digit', timeZone: 'America/Fortaleza' });
 const brlFormatter = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
 
 function compressPhotoFile(file: File): Promise<string> {
@@ -168,6 +175,9 @@ type ModalState =
   | { type: 'reset'; mode: 'seed' | 'empty' };
 
 export default function GridStockApp({ entryRole = 'ops', company }: { entryRole?: 'ops' | 'tech'; company?: { slug: string; name: string; color: string; tagline: string; config: CompanyConfig } }) {
+  const router = useRouter();
+  const [navigating, startNavigation] = useTransition();
+  const [redirecting, setRedirecting] = useState(false);
   const [companyConfig, setCompanyConfig] = useState<CompanyConfig>(company?.config || defaultConfig);
   const companySlug = company?.slug || '';
   const companyBase = companySlug ? `/empresa/${companySlug}` : '';
@@ -396,15 +406,18 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
   );
 
   useEffect(() => {
+    const controller = new AbortController();
     const savedToken = localStorage.getItem(TOKEN_KEY) === 'cookie' ? 'cookie' : '';
     if (!savedToken) localStorage.removeItem(TOKEN_KEY);
     setAuthToken(savedToken);
     fetch('/api/bootstrap', {
+      signal: controller.signal,
       headers: { ...(savedToken ? { Authorization: `Bearer ${savedToken}` } : {}), ...(companySlug ? { 'X-Gridstock-Company': companySlug } : {}) },
     })
       .then(async res => {
         if (res.ok) {
           const data = await res.json();
+          if (controller.signal.aborted) return;
           if (data.user.role === entryRole) applyServerPayload(data);
           else localStorage.removeItem(TOKEN_KEY);
         } else {
@@ -414,11 +427,12 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
         }
       })
       .catch(() => {
-        setCurrentUser(null);
+        if (!controller.signal.aborted) setCurrentUser(null);
       })
       .finally(() => {
-        setBooting(false);
+        if (!controller.signal.aborted) setBooting(false);
       });
+    return () => controller.abort();
   }, [applyServerPayload, entryRole, TOKEN_KEY, companySlug]);
 
   useEffect(() => {
@@ -436,12 +450,15 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
   useEffect(() => {
     if (!authToken || !currentUser) return;
     let active = true;
+    let refreshing = false;
     const refresh = async () => {
-      if (document.visibilityState !== 'visible' || modal) return;
+      if (document.visibilityState !== 'visible' || modal || refreshing) return;
+      refreshing = true;
       try {
         const data = await apiCall('GET', '/api/bootstrap');
         if (active) applyServerPayload(data);
       } catch { /* The next refresh retries temporary connection failures. */ }
+      finally { refreshing = false; }
     };
     const timer = setInterval(refresh, 15000);
     window.addEventListener('focus', refresh);
@@ -461,9 +478,12 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
   }, [currentUser]);
 
   // Helpers
-  const partById = useCallback((id?: string) => state.parts.find(p => p.id === id), [state.parts]);
-  const techById = useCallback((id?: string) => state.technicians.find(t => t.id === id), [state.technicians]);
-  const warehouseById = useCallback((id?: string) => state.warehouses.find(w => w.id === id), [state.warehouses]);
+  const partsById = useMemo(() => new Map(state.parts.map(part => [part.id, part])), [state.parts]);
+  const techniciansById = useMemo(() => new Map(state.technicians.map(tech => [tech.id, tech])), [state.technicians]);
+  const warehousesById = useMemo(() => new Map(state.warehouses.map(warehouse => [warehouse.id, warehouse])), [state.warehouses]);
+  const partById = useCallback((id?: string) => id ? partsById.get(id) : undefined, [partsById]);
+  const techById = useCallback((id?: string) => id ? techniciansById.get(id) : undefined, [techniciansById]);
+  const warehouseById = useCallback((id?: string) => id ? warehousesById.get(id) : undefined, [warehousesById]);
   const isWarehouse = useCallback((id?: string) => Boolean(warehouseById(id)), [warehouseById]);
   const locName = useCallback(
     (id?: string) => warehouseById(id)?.name || techById(id)?.name || '—',
@@ -477,26 +497,16 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
     return techById(techId) || state.technicians[0] || null;
   })();
 
-  const fmtNum = (v: number) => Number(v || 0).toLocaleString('pt-BR');
-  const fmtTime = (ts?: number | null) =>
-    new Date(ts || Date.now()).toLocaleTimeString('pt-BR', {
-      hour: '2-digit',
-      minute: '2-digit',
-      timeZone: 'America/Fortaleza',
-    });
-  const fmtDate = (ts?: number | null) =>
-    new Date(ts || Date.now()).toLocaleDateString('pt-BR', {
-      day: '2-digit',
-      month: '2-digit',
-      timeZone: 'America/Fortaleza',
-    });
+  const fmtNum = (v: number) => numberFormatter.format(Number(v || 0));
+  const fmtTime = (ts?: number | null) => timeFormatter.format(ts || Date.now());
+  const fmtDate = (ts?: number | null) => dateFormatter.format(ts || Date.now());
   const slotLabel = (slot?: SlotAddress | null) =>
     slot ? `Corredor ${slot.corridor} · Prateleira ${slot.shelf}` : 'Sem endereço cadastrado';
 
-  const warehousesTotal = state.warehouses.reduce((acc, w) => acc + calcTotal(state, w.id), 0);
-  const totalAll = Object.keys(state.stock || {}).reduce((acc, l) => acc + calcTotal(state, l), 0);
-  const allAlerts = calcAlerts(state);
-  const warehouseLowAlerts = state.warehouses.flatMap(w =>
+  const warehousesTotal = useMemo(() => state.warehouses.reduce((acc, w) => acc + calcTotal(state, w.id), 0), [state]);
+  const totalAll = useMemo(() => Object.keys(state.stock || {}).reduce((acc, l) => acc + calcTotal(state, l), 0), [state]);
+  const allAlerts = useMemo(() => calcAlerts(state), [state]);
+  const warehouseLowAlerts = useMemo(() => state.warehouses.flatMap(w =>
     state.parts
       .filter(p => {
         const slot = state.locations[w.id]?.[p.id];
@@ -512,7 +522,7 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
         min: p.baseMin > 0 ? p.baseMin : 1,
         slot: state.locations[w.id]?.[p.id],
       }))
-  );
+  ), [state]);
 
   // Open Movement Modal helper
   const openMovementModal = (
@@ -623,10 +633,12 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
   };
 
   const navigate = (p: PageId) => {
-    setPage(p);
-    clearFilters();
     setSidebarOpen(false);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    startNavigation(() => {
+      setPage(p);
+      clearFilters();
+    });
+    window.scrollTo({ top: 0, behavior: 'instant' });
   };
 
   const handleLogin = async (ev: React.FormEvent) => {
@@ -643,7 +655,8 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
         if (data.companySlug && data.companySlug !== companySlug) {
           const companyTokenKey = `${entryRole === 'tech' ? 'gridstock-tech-auth-token' : 'gridstock-auth-token'}:${data.companySlug}`;
           localStorage.setItem(companyTokenKey, data.token);
-          window.location.href = entryRole === 'tech' ? `/empresa/${data.companySlug}/tecnico` : `/empresa/${data.companySlug}`;
+          setRedirecting(true);
+          router.replace(entryRole === 'tech' ? `/empresa/${data.companySlug}/tecnico` : `/empresa/${data.companySlug}`);
           return;
         }
         applyServerPayload(data);
@@ -667,7 +680,8 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
               const adminData = await adminRes.json();
               if (adminData?.token) {
                 localStorage.setItem('gridstock-master-token', adminData.token);
-                window.location.href = '/administracao';
+                setRedirecting(true);
+                router.replace('/administracao');
                 return;
               }
             }
@@ -693,7 +707,7 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
     showToast('Sessão encerrada.');
   };
 
-  const filteredMovements = state.movements.filter(m => {
+  const filteredMovements = useMemo(() => state.movements.filter(m => {
     const activeTid = currentTech?.id || techId;
     if (view !== 'ops' && m.technician !== activeTid) return false;
     if (filterKind && m.kind !== filterKind) return false;
@@ -722,7 +736,7 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
       if (!hay.includes(query.toLowerCase())) return false;
     }
     return true;
-  });
+  }), [state.movements, currentTech?.id, techId, view, filterKind, filterTech, query, partById, techById, locName]);
 
   const exportCSV = () => {
     const safe = (v: unknown) => {
@@ -779,6 +793,7 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
     setXlsxImporting(true);
     try {
       if (file.size > 10 * 1024 * 1024) throw new Error('Planilha excede 10 MB.');
+      const { parseXlsxBytes } = await import('@/lib/xlsx');
       const matrix = await parseXlsxBytes(await file.arrayBuffer());
       if (matrix.length < 2) {
         throw new Error('A planilha .xlsx está vazia ou não possui linhas de produtos após o cabeçalho.');
@@ -866,38 +881,7 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
     }
   };
 
-  if (booting) {
-    return (
-      <div className="login-shell">
-        <aside className="login-aside">
-          <div className="brand" title={company?.name || 'GRIDSTOCK'}>
-            <img className="brand-mark" src="/gridstock-mark.svg" width={40} height={40} alt="" />
-            <span
-              className={`brand-wordmark ${company ? 'company-wordmark' : ''}`}
-              data-length={
-                company
-                  ? company.name.length > 22
-                    ? 'xl'
-                    : company.name.length > 14
-                    ? 'lg'
-                    : company.name.length > 9
-                    ? 'md'
-                    : 'sm'
-                  : undefined
-              }
-            >
-              {company ? company.name.toUpperCase() : <>GRID<span>STOCK</span><i aria-hidden="true">.</i></>}
-            </span>
-          </div>
-          <div className="login-hero">
-            <span className="eyebrow" style={{ color: 'var(--lime)' }}>CARREGANDO SISTEMA</span>
-            <h1>Conectando ao banco de dados operacional...</h1>
-          </div>
-          <div className="small" style={{ color: '#8da396' }}>GRIDSTOCK · Next.js + TypeScript</div>
-        </aside>
-      </div>
-    );
-  }
+  if (booting || redirecting) return <BrandLoading message={redirecting ? 'Preparando seu espaço de trabalho…' : 'Tudo pronto para colocar o estoque em movimento.'} />;
 
   if (!currentUser) {
     return (
@@ -925,7 +909,7 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
             </div>
             <div className="login-hero">
               <span className="eyebrow" style={{ color: 'var(--lime)' }}>{companyConfig.fieldService ? 'OPERAÇÃO E CAMPO EM TEMPO REAL' : 'ESTOQUE ORGANIZADO, OPERAÇÃO CONECTADA'}</span>
-              <h1>Cada peça no lugar.<br /><span>Sua operação<br />em movimento.</span></h1>
+              <h1>Cada peça no lugar.<br /><span>Sua operação <br />em movimento.</span></h1>
               <p>
                 {company?.tagline || (companyConfig.fieldService ? 'Conecte seus estoques à equipe em campo e acompanhe cada peça, da base ao atendimento.' : 'Acompanhe produtos, entradas, saídas e reposição em um só lugar.')}
               </p>
@@ -5210,7 +5194,8 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
               </div>
             </div>
           </header>
-          <div className="content" id="main-content" tabIndex={-1}>
+          <div className="content" id="main-content" tabIndex={-1} aria-busy={navigating}>
+            {navigating && <div className="navigation-progress" role="status">Abrindo sua próxima tela…</div>}
             <div key={`${view}-${page}`} className="page-transition">
               {ops ? (
                 page === 'overview' ? (
@@ -5243,7 +5228,7 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
         </main>
       </div>
       {renderModal()}
-      <BarcodeScannerModal
+      {scannerTarget !== null && <BarcodeScannerModal
         open={scannerTarget !== null}
         title={
           scannerTarget === 'quick-withdraw'
@@ -5312,8 +5297,8 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
             }
           }
         }}
-      />
-      <ProductQrModal
+      />}
+      {qrModalPartId !== null && <ProductQrModal
         open={qrModalPartId !== null}
         partId={qrModalPartId}
         state={state}
@@ -5325,12 +5310,12 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
             '';
           openMovementModal('withdraw', currentTech?.id || techId, pid, bestWh);
         }}
-      />
-      <RestockOrderModal
+      />}
+      {restockModalOpen && <RestockOrderModal
         open={restockModalOpen}
         state={state}
         onClose={() => setRestockModalOpen(false)}
-      />
+      />}
       <div id="toast" role="status" aria-live="polite" className={toastMsg ? 'show' : ''}>
         {toastMsg}
       </div>

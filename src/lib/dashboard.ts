@@ -12,9 +12,11 @@ export function dailyStockActivity(movements: Movement[], days: number, now = Da
     date.setUTCDate(date.getUTCDate() - days + index + 1);
     return { date: dayFormatter.format(date), label: labelFormatter.format(date), withdrawn: 0, used: 0 };
   });
+  // Fortaleza is UTC-03; skip old history before the expensive Intl formatting.
+  const startsAt = buckets.length ? Date.parse(`${buckets[0].date}T00:00:00-03:00`) : now;
   const byDate = new Map(buckets.map(day => [day.date, day]));
   for (const movement of movements) {
-    if (movement.ts > now || !Number.isFinite(movement.ts)) continue;
+    if (movement.ts < startsAt || movement.ts > now || !Number.isFinite(movement.ts)) continue;
     if (movement.kind !== 'withdraw' && movement.kind !== 'use') continue;
     const day = byDate.get(dayFormatter.format(movement.ts));
     if (!day) continue;

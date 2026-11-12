@@ -195,3 +195,67 @@ para implantações com múltiplas instâncias concorrentes.
 - Servidor antigo `server/index.js` desativado para operação; resta apenas para testes.
 
 Consulte `SECURITY_REVIEW.md` para evidências e limitações desta revisão.
+
+### Testar no celular pela rede local
+
+Execute `npm run dev -- --hostname 0.0.0.0` e acesse o endereço de rede mostrado
+no terminal. O host `172.16.1.48` está permitido em `allowedDevOrigins` para os
+recursos de desenvolvimento. Se o IP da máquina mudar, atualize esse host em
+`next.config.mjs` e reinicie o servidor. Após a mudança, recarregue a página no
+celular. Não use curingas para liberar qualquer origem.
+
+O desenvolvimento usa Turbopack e compila rotas sob demanda. Para avaliar a
+velocidade de uso sem o custo de compilação, use `npm run build` e `npm start`
+(porta 8080). Mantenha apenas um processo de desenvolvimento por checkout;
+não remova o lock de um processo que ainda está rodando.
+
+### Administração da plataforma e financeiro
+
+A central fica em `/administracao`. Os acessos operacionais continuam por CPF;
+a central aceita também usuários dedicados de administração. A conta antiga é
+preservada. Cada administrador altera sua própria senha, e a mudança encerra
+somente as outras sessões dessa mesma conta.
+
+Para provisionar uma conta dedicada, configure o Supabase no `.env`, pare os
+servidores deste checkout e execute `npm run admin:create`. O comando valida a
+conexão, cria um backup SQLite, mantém contas existentes e sincroniza o registro
+da plataforma. Usa `GRIDSTOCK_PLATFORM_ADMIN_USERNAME` (padrão `admin-gridstock`)
+e `GRIDSTOCK_PLATFORM_ADMIN_PASSWORD`; se a conta ainda não existe e a senha não
+foi definida, gera uma senha e a salva no `.env`, sem imprimi-la. Alterar essas
+variáveis depois não troca automaticamente a senha já gravada no banco.
+
+O painel inclui filtros e paginação de empresas, alertas a partir de 80% dos
+limites, acompanhamento dos primeiros cadastros, uso agregado, cópia de links,
+reutilização de módulos/limites e até 200 ações recentes com detalhes.
+
+O financeiro é de lançamento manual: receitas, despesas, vencimentos, datas de
+pagamento e estados pendente/pago/cancelado. O resultado de caixa usa pagamentos
+do período; pendências usam vencimentos. Cancelar preserva o registro e o remove
+dos totais. Há filtro por empresa/período, gráfico e CSV. Esses dados pertencem
+à plataforma, não ao estoque dos clientes, e estão no snapshot remoto do registro.
+Não há cobrança automática, gateway, MRR calculado por contratos nem apuração
+contábil de lucro. Taxas e custos precisam ser registrados para compor o resultado.
+
+`GRIDSTOCK_STORAGE_MODE=local` desativa explicitamente a sincronização, para bases
+isoladas de teste ou servidor único com disco persistente. Não use esse modo em
+serverless. O ambiente conectado continua exigindo a chave secreta do Supabase.
+
+### Nova interface da central
+
+A interface em `/administracao` tem navegação lateral recolhível, menu móvel e
+busca rápida por páginas ou empresas (`Ctrl K` / `Cmd K`). As transições mantêm
+a estrutura da tela e respeitam a preferência de movimento reduzido. O estilo
+novo está restrito à central de administração.
+
+O financeiro oferece Hoje, Este mês (até hoje), Últimos 30 dias e intervalo
+personalizado de até 366 dias. As comparações usam o intervalo imediatamente
+anterior com a mesma duração. O gráfico inclui dias sem pagamentos, e os painéis
+mostram as cinco maiores receitas por empresa e até cinco pendências por
+vencimento no intervalo escolhido. A lista tem busca e filtros por tipo/situação,
+incluindo atrasos; o CSV segue esses filtros. Os indicadores continuam seguindo
+somente a empresa e o período, conforme explicado na tela.
+
+Ao alternar seções, o financeiro permanece carregado e conserva filtros e edição.
+Use Atualizar dentro dele para buscar novos lançamentos de outros administradores.
+Empresas também podem ser exportadas em CSV e filtradas por cadastro inicial
+pendente. Exportações protegem células de texto contra fórmulas de planilha.

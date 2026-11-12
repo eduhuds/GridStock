@@ -4,10 +4,11 @@
   "private": true,
   "description": "GridStock — Gestão operacional de estoques, endereçamento físico, movimentações e equipes técnicas em campo com Next.js, TypeScript, React e SQLite.",
   "scripts": {
-    "dev": "rm -f .next/dev/lock && next dev --webpack",
+    "dev": "next dev",
     "build": "next build",
     "start": "next start -p 8080",
-    "test": "node --test tests/domain.test.cjs tests/server.test.cjs tests/dashboard.test.cjs tests/companies.test.cjs tests/security.test.cjs"
+    "admin:create": "node scripts/create-platform-admin.cjs",
+    "test": "node --test tests/domain.test.cjs tests/server.test.cjs tests/dashboard.test.cjs tests/companies.test.cjs tests/security.test.cjs tests/platform-admin.test.cjs"
   },
   "keywords": [
     "nextjs",

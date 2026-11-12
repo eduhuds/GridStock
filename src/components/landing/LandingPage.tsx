@@ -22,6 +22,7 @@ function Parcel() {
 }
 
 const faqs = [
+  ['O GridStock pode ser configurado para minha empresa?', 'Sim. Na apresentação, entendemos sua rotina e configuramos os módulos de equipe em campo, saídas e transferências, além dos limites de usuários e estoques. O ambiente também pode receber o nome, a cor e a mensagem de boas-vindas da sua empresa.'],
   ['Para quem é o GridStock?', 'Para empresas que precisam organizar materiais em almoxarifados e acompanhar peças com equipes externas, como operações de instalação, manutenção e assistência técnica. Também há configurações para comércio e estoque geral. Na conversa, entendemos o que faz sentido para a sua operação.'],
   ['Como consigo acesso para a minha empresa?', 'Clique em “Solicitar acesso pelo WhatsApp” e fale com a nossa equipe. O cadastro da empresa e a liberação do primeiro responsável são feitos por nós. Depois, você entra no sistema com CPF e senha.'],
   ['O técnico consegue usar pelo celular?', 'Sim. O portal do técnico é acessado pelo navegador do celular, com conexão à internet. Nele, o profissional consulta os materiais sob sua responsabilidade e registra retiradas, utilizações e devoluções.'],
@@ -41,11 +42,11 @@ export default function LandingPage() {
           <span className={s.eyebrow}><span className={s.liveDot} /> ESTOQUE ORGANIZADO. OPERAÇÃO CONECTADA.</span>
           <h1 id="hero-title">Saiba onde está cada peça.<br /><span>Da base ao campo.</span></h1>
           <p className={s.heroDescription}>O controle de estoque para quem tem equipes em campo.<br className={s.desktopBreak} /> Veja o que está no almoxarifado, com cada técnico e o que foi utilizado.</p>
-          <div className={s.heroActions}><ContactLink /><a className={s.secondaryButton} href="#como-funciona"><span className={s.playIcon}>▶</span> Veja como funciona</a></div>
+          <div className={s.heroActions}><ContactLink /><a className={s.secondaryButton} href="#como-funciona"><span className={s.playIcon}><svg viewBox="0 0 16 16" width="10" height="10" aria-hidden="true"><path d="M4 2.5 13 8 4 13.5Z" fill="currentColor" /></svg></span> Veja como funciona</a></div>
           <p className={s.microcopy}><Icon name="check" /> Fale com a gente no WhatsApp para ter seu acesso.</p>
         </div>
         <div className={s.heroProduct}>
-          <div className={s.handNote}>Seu estoque tem história.<br />Agora você acompanha.<span>⤵</span></div>
+          <div className={s.handNote}>Seu estoque tem história.<br />Agora você acompanha.<span aria-hidden="true"><svg viewBox="0 0 48 48" width="40" height="40" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M6 8c22-5 30 8 27 29m-9-9 9 10 9-10" /></svg></span></div>
           <div className={s.heroParcel}><Parcel /></div>
           <div className={s.floatTag}><span><Icon name="check" /></span><div><strong>Cada movimentação conta.</strong><small>Da retirada à devolução.</small></div></div>
           <ProductPreview />
@@ -91,6 +92,6 @@ export default function LandingPage() {
 
       <section className={s.finalSection}><Reveal><div className={s.finalCard}><div className={s.finalGrid} aria-hidden="true" /><div className={s.finalCopy}><span className={s.eyebrow}>CADA PEÇA NO SEU RADAR.</span><h2>Seu estoque se movimenta.<br />Seu controle acompanha.</h2><p>Conecte a base e a equipe em campo com o GridStock.</p><ContactLink light>Solicitar acesso pelo WhatsApp</ContactLink><span className={s.finalMicrocopy}>Uma conversa para entender a sua operação.</span></div><div className={s.finalParcel}><span className={s.parcelSpeech}>Tudo no seu lugar. <Icon name="check" /></span><Parcel /></div></div></Reveal></section>
     </main>
-    <footer className={s.footer}><div className={s.footerTop}><div><Link href="/" aria-label="GridStock, início"><Brand /></Link><p>Estoque em movimento.<br />Controle em cada etapa.</p></div><nav aria-label="Navegação do rodapé"><a href="#recursos">Recursos</a><a href="#como-funciona">Como funciona</a><a href="#duvidas">Dúvidas</a><Link href="/login" prefetch={false}>Entrar no sistema <Icon name="arrow" /></Link></nav></div><div className={s.footerBottom}><span>© {new Date().getFullYear()} GridStock.</span><LegalFooterLinks /></div></footer>
+    <footer className={s.footer}><div className={s.footerTop}><div><Link href="/" aria-label="GridStock, início"><Brand /></Link><p>Estoque em movimento.<br />Controle em cada etapa.</p></div><nav aria-label="Navegação do rodapé"><a href="#recursos">Recursos</a><a href="#como-funciona">Como funciona</a><a href="#duvidas">Dúvidas</a><Link href="/login">Entrar no sistema <Icon name="arrow" /></Link></nav></div><div className={s.footerBottom}><span>© {new Date().getFullYear()} GridStock.</span><LegalFooterLinks /></div></footer>
   </div>;
 }

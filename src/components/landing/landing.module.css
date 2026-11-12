@@ -601,3 +601,16 @@
 :global(html[data-contrast="high"]) .page { --lp-muted: #30442f; --lp-line: #6d8062; }
 :global(html[data-contrast="high"]) .page p, :global(html[data-contrast="high"]) .page .eyebrow { color: #30442f; }
 :global(html[data-contrast="high"]) .finalCopy p, :global(html[data-contrast="high"]) .finalCopy .eyebrow { color: white; }
+
+/* Keep artwork independent of the operating system's emoji fonts. */
+.playIcon svg, .handNote svg { display: block; flex-shrink: 0; }
+.page button, .page a { -webkit-tap-highlight-color: transparent; }
+.page summary { list-style: none; }
+.page summary::-webkit-details-marker { display: none; }
+@media (max-width: 600px) {
+  .page section[id] { scroll-margin-top: 110px; }
+  .header { backdrop-filter: none; background: #fafbf7; }
+}
+@media (prefers-reduced-motion: reduce) {
+  :global(html):has(.page) { scroll-behavior: auto; }
+}

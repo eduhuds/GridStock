@@ -76,7 +76,7 @@ export function secureRoute<Context>(handler: (req: Request, context: Context) =
     await previous;
     try {
       const hasRemotePersistence =
-        process.env.GRIDSTOCK_DB !== ':memory:' &&
+        process.env.GRIDSTOCK_DB !== ':memory:' && process.env.GRIDSTOCK_STORAGE_MODE !== 'local' &&
         Boolean(process.env.NEXT_PUBLIC_SUPABASE_URL);
       if (process.env.VERCEL && !hasRemotePersistence) return deny('Este armazenamento exige um servidor único com disco persistente. Migre o armazenamento antes de usar múltiplas instâncias.', 503);
       const master = url.pathname.startsWith('/api/admin/');

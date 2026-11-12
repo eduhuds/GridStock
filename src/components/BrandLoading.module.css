@@ -1,0 +1,12 @@
+.shell { min-height: 100svh; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; padding: 32px 24px; background: #fafbf7; color: #193d30; text-align: center; }
+.compact { min-height: 220px; border-radius: 18px; }
+.mark { padding: 14px; border: 1px solid #e0e7d5; border-radius: 24px; background: #eff4e5; }
+.mark img { display: block; }
+.brand { font-size: 30px; letter-spacing: -.06em; line-height: 1.2; }
+.brand span { color: #82985b; }
+.shell p { margin: 0; font-size: 14px; color: #708467; }
+.track { width: 144px; height: 4px; overflow: hidden; background: #e3ead8; border-radius: 8px; margin-top: 8px; }
+.track span { display: block; height: 100%; width: 50%; border-radius: inherit; background: #82985b; animation: progress 1.4s ease-in-out infinite alternate; }
+@keyframes progress { from { transform: translateX(-50%); } to { transform: translateX(150%); } }
+@media (prefers-reduced-motion: reduce) { .track span { animation: none; } }
+:global(html[data-reduce-motion="true"]) .track span { animation: none; }
