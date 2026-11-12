@@ -91,8 +91,20 @@ Cada empresa tem duas páginas:
 
 A personalização cobre a apresentação da empresa. Mudanças de regras de negócio ou
 novos módulos continuam sendo desenvolvimento no código compartilhado.
-O ambiente original continua em `/` e `/tecnico`; seus cadastros não são transferidos
+O ambiente original continua em `/login` e `/tecnico`; seus cadastros não são transferidos
 automaticamente para as novas empresas. Novas empresas começam vazias.
+
+### Landing page
+
+A rota `/` é a página pública do GridStock. O botão **Entrar** leva a `/login`,
+que preserva a autenticação por CPF e senha e a identificação da empresa.
+Os endereços `/tecnico`, `/administracao` e `/empresa/[slug]` continuam disponíveis.
+
+O contato comercial é centralizado em `src/components/landing/config.ts`.
+O número `5511999999999` é **provisório**: substitua `WHATSAPP_NUMBER` pelo WhatsApp
+comercial antes de divulgar a página. A mensagem inicial também está nesse arquivo.
+As demonstrações da landing usam dados ilustrativos e não consultam os bancos das empresas.
+As notas de posicionamento e fontes da copy estão em `docs/landing-page.md`.
 
 ### Armazenamento e isolamento
 

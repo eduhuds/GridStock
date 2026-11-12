@@ -1022,7 +1022,7 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
                 {entryRole === 'tech' ? 'Use seu CPF e a senha fornecida pelo administrador.' : (companyConfig.fieldService ? 'Cadastre a equipe e acompanhe as movimentações de cada técnico.' : 'Acesso exclusivo aos dados da sua empresa.')}
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 6, marginTop: 10 }}>
                   {companyConfig.fieldService && (
-                    <a className="text-link" style={{ marginTop: 0 }} href={entryRole === 'tech' ? (companyBase || '/') : `${companyBase}/tecnico`}>
+                    <a className="text-link" style={{ marginTop: 0 }} href={entryRole === 'tech' ? (companyBase || '/login') : `${companyBase}/tecnico`}>
                       <Icon name={entryRole === 'tech' ? 'grid' : 'van'} />
                       {entryRole === 'tech' ? 'Acesso do operacional' : 'Acesso exclusivo do técnico'}
                     </a>
