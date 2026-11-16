@@ -67,7 +67,6 @@ export function ProductPreview({ mascot }: { mascot: ReactNode }) {
   const [active, setActive] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [visible, setVisible] = useState(false);
-  const [interacting, setInteracting] = useState(false);
   const [reduced, setReduced] = useState(true);
   const stage = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -92,23 +91,26 @@ export function ProductPreview({ mascot }: { mascot: ReactNode }) {
     return () => observer.disconnect();
   }, []);
   useEffect(() => {
-    if (!playing || !visible || interacting || reduced) return;
+    if (!playing || !visible || reduced) return;
     const timer = window.setInterval(() => {
       if (document.visibilityState === 'visible') setActive(value => (value + 1) % previewTabs.length);
     }, 5500);
     return () => window.clearInterval(timer);
-  }, [playing, visible, interacting, reduced]);
+  }, [playing, visible, reduced]);
   const selectTab = (index: number) => { setPlaying(false); setActive(index); };
-  const running = playing && visible && !interacting && !reduced;
-  return <div ref={stage} className={s.previewStage} data-scene={active} data-running={running}
-    onMouseEnter={() => setInteracting(true)} onMouseLeave={() => setInteracting(false)}
-    onFocusCapture={() => setInteracting(true)} onBlurCapture={event => { if (!event.currentTarget.contains(event.relatedTarget)) setInteracting(false); }}>
+  const running = playing && visible && !reduced;
+  const togglePlayback = () => {
+    if (reduced) return;
+    if (!playing) setActive(value => (value + 1) % previewTabs.length);
+    setPlaying(value => !value);
+  };
+  return <div ref={stage} className={s.previewStage} data-scene={active} data-running={running}>
     <div className={s.demoCompanion}>
       <div className={s.demoSpeech}><Icon name={previewTabs[active].icon} /><span>{['Tudo começa com o estoque organizado.', 'Agora, acompanhe sua equipe em campo.', 'Cada movimento fica na história.'][active]}</span></div>
       <div className={s.demoMascot}>{mascot}</div>
     </div>
     <div className={s.demoControls}><span><i /> Demonstração {playing && !reduced ? 'automática' : 'manual'} · dados ilustrativos</span>
-      <button type="button" disabled={reduced} aria-pressed={playing} onClick={() => setPlaying(value => !value)}>{reduced ? 'Movimento reduzido ativo' : playing ? 'Pausar animação' : 'Reproduzir animação'}</button>
+      <button type="button" disabled={reduced} aria-pressed={playing} onClick={togglePlayback}>{reduced ? 'Movimento reduzido ativo' : playing ? 'Pausar animação' : 'Reproduzir animação'}</button>
     </div>
     <div className={s.previewWrap}>
     <div className={s.previewChrome}><span className={s.chromeDots}><i /><i /><i /></span><span><Icon name="shield" /> Seu espaço de trabalho</span><span className={s.previewLabel}>DEMONSTRAÇÃO ILUSTRATIVA</span></div>
@@ -127,7 +129,7 @@ export function ProductPreview({ mascot }: { mascot: ReactNode }) {
         </div>
       </div>
     </div>
-    <div className={s.previewCaption}><Icon name="arrows" /> Escolha uma aba para explorar. A reprodução pausa durante sua interação.</div>
+    <div className={s.previewCaption}><Icon name="arrows" /> A animação troca as telas automaticamente. Escolha uma aba para explorar ou use o botão para pausar.</div>
   </div></div>;
 }
 

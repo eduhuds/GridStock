@@ -68,4 +68,4 @@ Conferência visual em navegador não realizada nesta revisão, conforme prefer�
 
 ## Mascote e demonstração animada
 
-Mascote restaurado acima da tela. Abas alternam a cada 5,5 segundos enquanto a demonstração está visível, sem interação e com movimento permitido. Hover ou foco pausam o avanço; escolher uma aba muda para exploração manual. Controle explícito de reprodução e respeito à preferência de movimento reduzido do sistema e do hub de acessibilidade. Ícones e mensagem do mascote acompanham a mesma aba selecionada. Dados permanecem fictícios e não há chamadas à API operacional.
+Mascote restaurado acima da tela. Abas alternam a cada 5,5 segundos enquanto a demonstração está visível e com movimento permitido. Mouse e foco não interrompem a reprodução; escolher uma aba muda para exploração manual. Reproduzir avança imediatamente e retoma o ciclo automático. Controle explícito de reprodução e respeito à preferência de movimento reduzido do sistema e do hub de acessibilidade. Ícones e mensagem do mascote acompanham a mesma aba selecionada. Dados permanecem fictícios e não há chamadas à API operacional.
