@@ -63,9 +63,54 @@ const previewTabs = [
   { label: 'Movimentações', icon: 'arrows' },
 ];
 
-export function ProductPreview() {
+export function ProductPreview({ mascot }: { mascot: ReactNode }) {
   const [active, setActive] = useState(0);
-  return <div className={s.previewWrap}>
+  const [playing, setPlaying] = useState(false);
+  const [visible, setVisible] = useState(false);
+  const [interacting, setInteracting] = useState(false);
+  const [reduced, setReduced] = useState(true);
+  const stage = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const media = matchMedia('(prefers-reduced-motion: reduce)');
+    const sync = () => {
+      const reduce = media.matches || document.documentElement.dataset.reduceMotion === 'true';
+      setReduced(reduce);
+      setPlaying(!reduce);
+    };
+    sync();
+    media.addEventListener('change', sync);
+    const preferences = new MutationObserver(sync);
+    preferences.observe(document.documentElement, { attributes: true, attributeFilter: ['data-reduce-motion'] });
+    return () => { media.removeEventListener('change', sync); preferences.disconnect(); };
+  }, []);
+  useEffect(() => {
+    const element = stage.current;
+    if (!element) return;
+    if (!('IntersectionObserver' in window)) { setVisible(true); return; }
+    const observer = new IntersectionObserver(([entry]) => setVisible(entry.isIntersecting), { threshold: .2 });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+  useEffect(() => {
+    if (!playing || !visible || interacting || reduced) return;
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === 'visible') setActive(value => (value + 1) % previewTabs.length);
+    }, 5500);
+    return () => window.clearInterval(timer);
+  }, [playing, visible, interacting, reduced]);
+  const selectTab = (index: number) => { setPlaying(false); setActive(index); };
+  const running = playing && visible && !interacting && !reduced;
+  return <div ref={stage} className={s.previewStage} data-scene={active} data-running={running}
+    onMouseEnter={() => setInteracting(true)} onMouseLeave={() => setInteracting(false)}
+    onFocusCapture={() => setInteracting(true)} onBlurCapture={event => { if (!event.currentTarget.contains(event.relatedTarget)) setInteracting(false); }}>
+    <div className={s.demoCompanion}>
+      <div className={s.demoSpeech}><Icon name={previewTabs[active].icon} /><span>{['Tudo começa com o estoque organizado.', 'Agora, acompanhe sua equipe em campo.', 'Cada movimento fica na história.'][active]}</span></div>
+      <div className={s.demoMascot}>{mascot}</div>
+    </div>
+    <div className={s.demoControls}><span><i /> Demonstração {playing && !reduced ? 'automática' : 'manual'} · dados ilustrativos</span>
+      <button type="button" disabled={reduced} aria-pressed={playing} onClick={() => setPlaying(value => !value)}>{reduced ? 'Movimento reduzido ativo' : playing ? 'Pausar animação' : 'Reproduzir animação'}</button>
+    </div>
+    <div className={s.previewWrap}>
     <div className={s.previewChrome}><span className={s.chromeDots}><i /><i /><i /></span><span><Icon name="shield" /> Seu espaço de trabalho</span><span className={s.previewLabel}>DEMONSTRAÇÃO ILUSTRATIVA</span></div>
     <div className={s.previewApp}>
       <div className={s.previewSidebar} aria-hidden="true"><div className={s.previewBrand}><img src="/gridstock-mark.svg" width="25" height="25" alt="" />gridstock.</div><div className={s.previewWorkspace}><span>O</span><div>Minha operação<small>Controle operacional</small></div><Icon name="down" /></div><small className={s.previewMenuLabel}>ESPAÇO DE TRABALHO</small>{[['grid', 'Visão geral'], ['box', 'Estoques'], ['users', 'Equipe em campo'], ['arrows', 'Movimentações']].map(([icon, name], i) => <div className={`${s.previewNavItem} ${i === [0, 2, 3][active] ? s.previewNavActive : ''}`} key={name}><Icon name={icon} />{name}</div>)}<div className={s.previewSidebarBottom}><span className={s.liveDot} /> Estoque em movimento.</div></div>
@@ -74,7 +119,7 @@ export function ProductPreview() {
         <div className={s.previewMain}>
           <div className={s.previewHeading}><div><h2>{active === 0 ? 'Sua operação, em um olhar.' : active === 1 ? 'Cada técnico. Cada peça.' : 'O caminho fica registrado.'}</h2><p>{active === 0 ? 'Da base ao campo, tudo conectado.' : active === 1 ? 'Materiais sob responsabilidade da equipe.' : 'Retiradas, utilizações e devoluções em um histórico.'}</p></div><span className={s.previewDate}><Icon name="calendar" /> Hoje</span></div>
           <div className={s.previewMetrics}>{[['Total em estoque', '1.248', 'Entre bases e técnicos', 'box'], ['Nas bases', '1.086', 'Em 3 almoxarifados', 'grid'], ['Com a equipe', '162', 'Distribuídas entre 8 técnicos', 'users'], ['Atenção ao estoque', '03', 'Produtos abaixo do mínimo', 'alert']].map(([label, value, note, icon], i) => <div className={`${s.previewMetric} ${i === 0 ? s.metricFeatured : ''}`} key={label}><span>{label}<Icon name={icon} /></span><strong>{value}</strong><small>{note}</small></div>)}</div>
-          <div role="tablist" aria-label="Explore a demonstração" className={s.previewTabs}>{previewTabs.map(({ label, icon }, i) => <button type="button" key={label} id={`preview-tab-${i}`} role="tab" aria-selected={active === i} aria-controls="preview-panel" tabIndex={active === i ? 0 : -1} onClick={() => setActive(i)} onKeyDown={event => moveTab(event, i, previewTabs.length, setActive)}><Icon name={icon} />{label}</button>)}</div>
+          <div role="tablist" aria-label="Explore a demonstração" className={s.previewTabs}>{previewTabs.map(({ label, icon }, i) => <button type="button" key={label} id={`preview-tab-${i}`} role="tab" aria-selected={active === i} aria-controls="preview-panel" tabIndex={active === i ? 0 : -1} onClick={() => selectTab(i)} onKeyDown={event => moveTab(event, i, previewTabs.length, selectTab)}><Icon name={icon} />{label}</button>)}</div>
           <div id="preview-panel" role="tabpanel" aria-labelledby={`preview-tab-${active}`} tabIndex={0} className={s.previewPanel}>
             {active === 0 ? <div className={s.previewOverview} key="overview"><div className={s.previewChart}><div className={s.previewCardTitle}>Distribuição do estoque <Icon name="box" /></div><div className={s.distribution}><div className={s.donut}><div><strong>1.248</strong><span>peças em estoque</span></div></div><div className={s.chartLegend}>{[['Base central', '684', '#285d48'], ['Base norte', '248', '#9fb982'], ['Base sul', '154', '#d5ef87'], ['Com técnicos', '162', '#dfb780']].map(([label, count, color]) => <div key={label}><i style={{ background: color }} /><span>{label}</span><strong>{count}</strong></div>)}</div></div></div><div className={s.previewActivity}><div className={s.previewCardTitle}>Últimas movimentações <Icon name="clock" /></div>{[['box', 'Retirada de material', 'Equipe de instalação · 12 peças', '09:41'], ['pin', 'Utilização em campo', 'Equipe de manutenção · 4 peças', '09:28'], ['reset', 'Devolução na base', 'Equipe de instalação · 2 peças', '09:12']].map(([icon, title, detail, time]) => <div className={s.previewActivityRow} key={title}><span><Icon name={icon} /></span><div><strong>{title}</strong><small>{detail}</small></div><time>{time}</time></div>)}</div></div> : active === 1 ? <div className={s.demoTeamGrid} key="team">{[['AL', 'Alex Lima', 'Instalação', '24', 'mint'], ['CM', 'Camila Melo', 'Manutenção', '18', 'peach'], ['RS', 'Rafael Silva', 'Assistência', '32', 'blue']].map(([initials, name, role, qty, color]) => <div className={s.demoTeamCard} key={name}><span className={s.teamAvatar} data-color={color}>{initials}</span><strong>{name}</strong><small>{role}</small><div><strong>{qty}</strong> peças na carga</div><span className={s.teamStatus}><i /> Em rota</span></div>)}</div> : <div className={s.demoTable} key="movements"><div className={s.demoTableHeader}><span>Movimentação</span><span>Material</span><span>Quantidade</span><span>Local</span></div>{[['Retirada', 'Conector óptico', '12 un.', 'Base central → Técnico'], ['Utilização', 'Cabo de rede', '4 un.', 'Atendimento em campo'], ['Devolução', 'Roteador', '2 un.', 'Técnico → Base central']].map(row => <div key={row[0]}>{row.map((cell, i) => <span key={cell}>{i === 0 ? <span className={s.movementType}>{cell}</span> : cell}</span>)}</div>)}</div>}
           </div>
@@ -82,8 +127,8 @@ export function ProductPreview() {
         </div>
       </div>
     </div>
-    <div className={s.previewCaption}><Icon name="arrows" /> Explore as abas e conheça o fluxo do GridStock.</div>
-  </div>;
+    <div className={s.previewCaption}><Icon name="arrows" /> Escolha uma aba para explorar. A reprodução pausa durante sua interação.</div>
+  </div></div>;
 }
 
 const steps = [

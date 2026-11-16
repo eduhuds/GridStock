@@ -65,3 +65,7 @@ Direção: manter o verde escuro e verde-lima da marca, usar superfícies arredo
 Incluídos dois cartões de acesso por perfil (operacional e técnico), preservando as rotas /login e /tecnico. Nenhuma alteração em autenticação, APIs ou banco. WhatsApp comercial configurado conforme resposta do responsável.
 
 Conferência visual em navegador não realizada nesta revisão, conforme preferência do responsável. Validar desktop e celular na prévia antes de publicar em produção.
+
+## Mascote e demonstração animada
+
+Mascote restaurado acima da tela. Abas alternam a cada 5,5 segundos enquanto a demonstração está visível, sem interação e com movimento permitido. Hover ou foco pausam o avanço; escolher uma aba muda para exploração manual. Controle explícito de reprodução e respeito à preferência de movimento reduzido do sistema e do hub de acessibilidade. Ícones e mensagem do mascote acompanham a mesma aba selecionada. Dados permanecem fictícios e não há chamadas à API operacional.

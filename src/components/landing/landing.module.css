@@ -683,3 +683,41 @@
   .hero .audienceStrip { padding-bottom: 26px; }
   .hero .previewWrap { border-radius: 14px; }
 }
+
+/* The mascot stays above the preview; its cue and highlighted icons follow
+   the same React tab state as the illustrative dashboard. */
+.previewStage { position: relative; }
+.demoCompanion { min-height: 160px; display: flex; justify-content: flex-end; align-items: center; gap: 8px; padding-right: 24px; }
+.demoMascot { width: 170px; height: 160px; flex-shrink: 0; transform: translateY(10px); pointer-events: none; }
+.demoMascot .parcelScene { transform: scale(.78); transform-origin: top left; }
+.demoSpeech { color: #e4efd9; background: #234438; border: 1px solid #48614e; border-radius: 18px 18px 0 18px; padding: 14px 18px; max-width: 290px; display: flex; align-items: center; gap: 12px; font-size: .86rem; line-height: 1.5; }
+.demoSpeech svg { color: var(--lp-lime); width: 22px; height: 22px; }
+.demoControls { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 4px 18px; color: #c1d2c6; font-size: .72rem; }
+.demoControls > span { display: inline-flex; align-items: center; gap: 8px; }
+.demoControls i { width: 6px; height: 6px; background: var(--lp-lime); border-radius: 50%; }
+.demoControls button { color: #fff; background: #2a4b3b; border: 1px solid #6c806f; border-radius: 24px; min-height: 40px; padding: 8px 16px; font-size: .75rem; white-space: nowrap; }
+.demoControls button:disabled { opacity: 1; color: #c1d2c6; background: transparent; cursor: default; }
+.previewStage[data-running="false"] .demoMascot * { animation-play-state: paused !important; }
+.previewStage[data-running="true"] .previewNavActive svg { animation: demoIcon 2.6s ease-in-out infinite; }
+.previewStage[data-scene="0"][data-running="true"] .previewMetric svg { animation: demoIcon 2.6s ease-in-out infinite; }
+.previewStage[data-running="true"] .previewMetric:nth-child(2) svg { animation-delay: .2s; }
+.previewStage[data-running="true"] .previewMetric:nth-child(3) svg { animation-delay: .4s; }
+.previewStage[data-scene="1"][data-running="true"] .teamAvatar { animation: demoIcon 2.6s ease-in-out infinite; }
+.previewStage[data-running="true"] .demoTeamCard:nth-child(2) .teamAvatar { animation-delay: .25s; }
+.previewStage[data-running="true"] .demoTeamCard:nth-child(3) .teamAvatar { animation-delay: .5s; }
+.previewStage[data-scene="2"][data-running="true"] .movementType { animation: demoRecord 2.6s ease-in-out infinite; }
+.previewStage[data-scene="1"] .parcelEyes { transform: translateX(3px); }
+.previewStage[data-scene="2"] .parcelEyes { transform: translateX(-3px); }
+.demoMascot .parcelEyes { transition: transform .4s ease; }
+@keyframes demoIcon { 0%, 100% { transform: translateY(0); } 45% { transform: translateY(-4px); } }
+@keyframes demoRecord { 0%,100% { background: #edf3e7; } 50% { background: #d5ef87; } }
+@media (max-width: 600px) {
+  .demoCompanion { min-height: 125px; padding-right: 0; gap: 0; }
+  .demoMascot { width: 112px; height: 120px; }
+  .demoMascot .parcelScene { transform: scale(.55); }
+  .demoSpeech { font-size: .73rem; padding: 12px; gap: 8px; max-width: 225px; }
+  .demoSpeech svg { width: 17px; height: 17px; }
+  .demoControls { align-items: flex-start; flex-wrap: wrap; font-size: .65rem; }
+  .demoControls button { min-height: 40px; }
+}
+@media (prefers-reduced-motion: reduce) { .previewStage *, .previewStage *::before, .previewStage *::after { animation: none !important; transition: none !important; } }

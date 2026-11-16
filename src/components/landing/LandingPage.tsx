@@ -48,7 +48,7 @@ export default function LandingPage() {
         <div className={s.heroCapabilities} aria-label="Recursos da plataforma"><span><Icon name="box" /> Múltiplos estoques</span><span><Icon name="users" /> Acessos por perfil</span><span><Icon name="arrows" /> Histórico de movimentações</span></div>
         <div className={s.heroProduct}>
           <div className={s.productCaption}><span>CONHEÇA SEU PRÓXIMO ESPAÇO DE TRABALHO</span><a href="#como-funciona">Explore o fluxo <Icon name="arrow" /></a></div>
-          <ProductPreview />
+          <ProductPreview mascot={<Parcel />} />
         </div>
         <div className={s.audienceStrip}><span>FEITO PARA QUEM COLOCA A OPERAÇÃO EM MOVIMENTO</span><div><span><Icon name="tool" /> Manutenção</span><span><Icon name="route" /> Instalação</span><span><Icon name="users" /> Assistência técnica</span><span><Icon name="box" /> Almoxarifados</span></div></div>
       </section>
