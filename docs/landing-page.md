@@ -40,7 +40,7 @@ uso 100/12/8 e devolução 112/0/8 (base/técnico/utilizadas).
 
 ## Revisão e pendências
 
-- Trocar o número provisório em `src/components/landing/config.ts` antes de divulgar.
+- WhatsApp comercial confirmado pelo responsável e configurado em 16/11/2026.
 - A copy principal já está implementada nos componentes, com CTA único de contato.
 - A avaliação editorial identifica categoria, público, benefício, mecanismo e destino do clique.
 - Validação humana ainda pendente: mostrar a primeira dobra por 10 segundos a pessoas do público
@@ -57,3 +57,11 @@ uso 100/12/8 e devolução 112/0/8 (base/técnico/utilizadas).
 - Compilação de produção verificada no navegador, incluindo aviso de cookies no celular;
   sem erros ou avisos no console durante a checagem da landing.
 - URLs comerciais verificadas sem enviar mensagens para o número provisório.
+
+## Atualização visual — 16/11/2026
+
+Direção: manter o verde escuro e verde-lima da marca, usar superfícies arredondadas da referência de relatório enviada pelo responsável e destacar a demonstração existente. A primeira dobra ganha uma superfície escura contínua, chamada objetiva e acesso ao fluxo. Os exemplos continuam identificados como ilustrativos.
+
+Incluídos dois cartões de acesso por perfil (operacional e técnico), preservando as rotas /login e /tecnico. Nenhuma alteração em autenticação, APIs ou banco. WhatsApp comercial configurado conforme resposta do responsável.
+
+Conferência visual em navegador não realizada nesta revisão, conforme preferência do responsável. Validar desktop e celular na prévia antes de publicar em produção.

@@ -615,3 +615,71 @@
 @media (prefers-reduced-motion: reduce) {
   :global(html):has(.page) { scroll-behavior: auto; }
 }
+
+/* Modern product-led direction: existing green identity, report-like surfaces,
+   clear role choices and an interactive product preview as the main evidence. */
+.page { --lp-paper: #f5f7f4; --lp-muted: #59685f; }
+.brand { font-size: 1.42rem; letter-spacing: -.055em; }
+.header { max-width: 1240px; border-radius: 100px; background: #ffffffed; box-shadow: 0 8px 32px #193d3008; }
+.headerCta, .primaryButton { border-radius: 100px; }
+.hero { padding: 78px 32px 0; margin: 20px 20px 0; border-radius: 36px; background: #152d26; color: #fff; }
+.heroGrid { display: none; }
+.hero h1 { font-size: clamp(2.8rem,5.5vw,5.6rem); letter-spacing: -.06em; line-height: 1.08; font-weight: 650; max-width: 1040px; margin-top: 24px; }
+.hero h1 > span { color: var(--lp-lime); }
+.hero .eyebrow { color: #d5ef87; }
+.hero .liveDot { background: var(--lp-lime); }
+.hero .heroDescription { color: #c0d0c7; max-width: 730px; font-size: 1.08rem; line-height: 1.8; }
+.hero .primaryButton { background: var(--lp-lime); color: #193d30; box-shadow: none; }
+.hero .primaryButton:hover { background: #e1f6ad; }
+.hero .secondaryButton { color: #fff; }
+.hero .playIcon { border-color: #637b6c; }
+.hero .secondaryButton:hover .playIcon { background: #365845; }
+.hero .microcopy { color: #bfcec5; }
+.heroCapabilities { display: flex; flex-wrap: wrap; gap: 12px 30px; justify-content: center; margin: 30px 0 0; color: #d4e2da; font-size: .8rem; }
+.heroCapabilities > span { display: flex; align-items: center; gap: 8px; }
+.heroCapabilities svg { width: 16px; height: 16px; color: var(--lp-lime); }
+.heroProduct { max-width: 1120px; margin-top: 52px; color: var(--lp-ink); }
+.productCaption { display: flex; justify-content: space-between; align-items: center; gap: 16px; margin: 0 4px 18px; color: #c0d0c7; font-size: .65rem; letter-spacing: .1em; }
+.productCaption a { display: flex; align-items: center; gap: 8px; font-size: .8rem; letter-spacing: 0; color: #e1efda; }
+.productCaption svg { width: 15px; }
+.previewWrap { padding: 10px; border-radius: 22px; box-shadow: 0 24px 60px #00000026; border-color: #77937e; }
+.previewApp { border-radius: 14px; }
+.previewMetric { border-radius: 14px; }
+.hero .audienceStrip { border-color: #3c5547; margin-top: 38px; padding-bottom: 35px; }
+.hero .audienceStrip > span { color: #c0d0c7; }
+.hero .audienceStrip > div > span { color: #dce8df; }
+.roleSection { padding-bottom: 30px; }
+.roleGrid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 24px; }
+.roleCard { padding: 36px; border: 1px solid var(--lp-line); border-radius: 28px; background: white; display: flex; flex-direction: column; align-items: flex-start; }
+.roleIcon { width: 48px; height: 48px; display: grid; place-items: center; border-radius: 16px; background: #edf3e7; color: var(--lp-green); margin-bottom: 24px; }
+.roleCard h3 { font-size: clamp(1.55rem,2.4vw,2.1rem); margin: 16px 0 24px; }
+.roleCard ul { padding: 0; list-style: none; margin: 0 0 28px; display: grid; gap: 14px; }
+.roleCard li { display: flex; gap: 10px; align-items: flex-start; color: var(--lp-muted); font-size: .93rem; }
+.roleCard li svg { width: 16px; height: 16px; margin-top: 4px; color: var(--lp-green); }
+.roleLink { display: flex; align-items: center; justify-content: space-between; gap: 16px; width: 100%; border-top: 1px solid var(--lp-line); padding-top: 22px; margin-top: auto; font-size: .87rem; font-weight: 650; }
+.roleLink svg { width: 17px; }
+.problemCard, .featureCard { border-radius: 28px; }
+.problemSection { padding-top: 70px; }
+.sectionHeading > p { max-width: 640px; }
+:global(html[data-contrast="high"]) .hero p, :global(html[data-contrast="high"]) .hero .eyebrow { color: #fff; }
+@media (max-width: 900px) {
+  .hero { margin: 14px; padding: 56px 22px 0; border-radius: 28px; }
+  .header { border-radius: 24px; }
+  .roleCard { padding: 26px; }
+}
+@media (max-width: 600px) {
+  .hero { margin: 10px; padding: 40px 16px 0; border-radius: 24px; }
+  .hero h1 { font-size: clamp(2.25rem,9vw,3.2rem); letter-spacing: -.05em; }
+  .hero .heroDescription { font-size: .95rem; }
+  .hero .heroActions { gap: 14px; }
+  .heroCapabilities { gap: 12px; justify-content: flex-start; font-size: .72rem; }
+  .heroCapabilities > span { flex: 1 1 140px; }
+  .heroProduct { margin-top: 32px; }
+  .productCaption { align-items: flex-start; font-size: .58rem; }
+  .productCaption a { font-size: .72rem; white-space: nowrap; }
+  .roleGrid { grid-template-columns: 1fr; gap: 16px; }
+  .roleCard { border-radius: 22px; padding: 25px; }
+  .roleCard li { font-size: .87rem; }
+  .hero .audienceStrip { padding-bottom: 26px; }
+  .hero .previewWrap { border-radius: 14px; }
+}
