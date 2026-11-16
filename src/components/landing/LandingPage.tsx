@@ -16,7 +16,7 @@ function ContactLink({ children = 'Quero conhecer o GridStock', light = false }:
 function Parcel() {
   return <div className={s.parcelScene} aria-hidden="true">
     <div className={s.parcelShadow} />
-    <div className={s.parcel}><div className={s.parcelTop}><i /></div><div className={s.parcelSide} /><div className={s.parcelFront}><span className={s.parcelTape} /><span className={s.parcelEyes}><i /><i /></span><span className={s.parcelSmile} /><span className={s.parcelLabel}>G.</span></div></div>
+    <div className={s.parcel}><div className={s.parcelTop}><i /></div><div className={s.parcelSide} /><div className={s.parcelFront}><span className={s.parcelTape} /><span className={s.parcelEyes}><i /><i /></span><span className={s.parcelSmile} /><span className={s.parcelLabel}><img src="/gridstock-mark.svg" width="18" height="18" alt="" /></span></div></div>
     <span className={s.parcelSpark}>✦</span>
   </div>;
 }

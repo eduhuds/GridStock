@@ -316,7 +316,8 @@
 .parcelEyes i { background: #23442d; width: 11px; height: 15px; border-radius: 50%; box-shadow: inset 2px 2px 1px #496443; }
 .parcelEyes i::after { content: ''; display: block; width: 3px; height: 4px; border-radius: 50%; background: #f9ffde; margin: 2px 0 0 2px; }
 .parcelSmile { position: absolute; top: 75px; left: 54px; width: 16px; height: 10px; border-bottom: 2px solid #345431; border-radius: 50%; }
-.parcelLabel { position: absolute; bottom: 8px; left: 10px; font-size: 11px; font-weight: 800; letter-spacing: -1px; line-height: 1; border: 1px solid #718b4e55; border-radius: 3px; padding: 4px 6px; color: #536d3c; }
+.parcelLabel { position: absolute; bottom: 8px; left: 10px; display: grid; place-items: center; border: 1px solid #718b4e55; border-radius: 4px; padding: 2px; background: #d5ef87; }
+.parcelLabel img { display: block; width: 18px; height: 18px; }
 .parcelShadow { width: 140px; height: 22px; position: absolute; bottom: -7px; left: 35px; background: #163d342b; filter: blur(12px); border-radius: 50%; animation: shadowFloat 7s ease-in-out infinite; }
 .parcelSpark { position: absolute; top: 23px; right: -7px; font-size: 28px; color: #94b156; animation: sparkle 7s ease-in-out infinite; }
 .footer { max-width: 1120px; margin: auto; padding: 35px 0 30px; }
