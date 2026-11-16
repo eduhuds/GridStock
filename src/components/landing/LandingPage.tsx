@@ -6,7 +6,7 @@ import { WHATSAPP_URL } from './config';
 import s from './landing.module.css';
 
 function Brand() {
-  return <span className={s.brand}><img src="/gridstock-mark.svg" width="34" height="34" alt="" />gridstock<span className={s.brandPeriod}>.</span></span>;
+  return <span className={s.brand}><img src="/gridstock-mark.svg" width="34" height="34" alt="" />GRIDSTOCK<span className={s.brandPeriod}>.</span></span>;
 }
 
 function ContactLink({ children = 'Quero conhecer o GridStock', light = false }: { children?: React.ReactNode; light?: boolean }) {
@@ -40,18 +40,25 @@ export default function LandingPage() {
         <div className={s.heroGrid} aria-hidden="true" />
         <div className={s.heroIntro}>
           <span className={s.eyebrow}><span className={s.liveDot} /> ESTOQUE ORGANIZADO. OPERAÇÃO CONECTADA.</span>
-          <h1 id="hero-title">Saiba onde está cada peça.<br /><span>Da base ao campo.</span></h1>
-          <p className={s.heroDescription}>O controle de estoque para quem tem equipes em campo.<br className={s.desktopBreak} /> Veja o que está no almoxarifado, com cada técnico e o que foi utilizado.</p>
+          <h1 id="hero-title">Seu estoque sob controle.<br /><span>Em cada etapa.</span></h1>
+          <p className={s.heroDescription}>Organize suas bases. Conecte sua equipe. Acompanhe cada movimentação.<br className={s.desktopBreak} /> Do produto na prateleira à peça utilizada em campo.</p>
           <div className={s.heroActions}><ContactLink /><a className={s.secondaryButton} href="#como-funciona"><span className={s.playIcon}><svg viewBox="0 0 16 16" width="10" height="10" aria-hidden="true"><path d="M4 2.5 13 8 4 13.5Z" fill="currentColor" /></svg></span> Veja como funciona</a></div>
           <p className={s.microcopy}><Icon name="check" /> Fale com a gente no WhatsApp para ter seu acesso.</p>
         </div>
+        <div className={s.heroCapabilities} aria-label="Recursos da plataforma"><span><Icon name="box" /> Múltiplos estoques</span><span><Icon name="users" /> Acessos por perfil</span><span><Icon name="arrows" /> Histórico de movimentações</span></div>
         <div className={s.heroProduct}>
-          <div className={s.handNote}>Seu estoque tem história.<br />Agora você acompanha.<span aria-hidden="true"><svg viewBox="0 0 48 48" width="40" height="40" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M6 8c22-5 30 8 27 29m-9-9 9 10 9-10" /></svg></span></div>
-          <div className={s.heroParcel}><Parcel /></div>
-          <div className={s.floatTag}><span><Icon name="check" /></span><div><strong>Cada movimentação conta.</strong><small>Da retirada à devolução.</small></div></div>
+          <div className={s.productCaption}><span>CONHEÇA SEU PRÓXIMO ESPAÇO DE TRABALHO</span><a href="#como-funciona">Explore o fluxo <Icon name="arrow" /></a></div>
           <ProductPreview />
         </div>
         <div className={s.audienceStrip}><span>FEITO PARA QUEM COLOCA A OPERAÇÃO EM MOVIMENTO</span><div><span><Icon name="tool" /> Manutenção</span><span><Icon name="route" /> Instalação</span><span><Icon name="users" /> Assistência técnica</span><span><Icon name="box" /> Almoxarifados</span></div></div>
+      </section>
+
+      <section className={`${s.section} ${s.roleSection}`} aria-labelledby="roles-title">
+        <div className={s.sectionHeading}><span className={s.eyebrow}>UMA OPERAÇÃO. DOIS PONTOS DE VISTA.</span><h2 id="roles-title">Clareza para quem organiza.<br />Agilidade para quem executa.</h2><p>Cada perfil encontra as informações e ações da sua rotina.</p></div>
+        <div className={s.roleGrid}>
+          <article className={s.roleCard}><span className={s.roleIcon}><Icon name="grid" /></span><span className={s.eyebrow}>CONTROLE OPERACIONAL</span><h3>Uma visão completa.<br />Sem perder os detalhes.</h3><ul><li><Icon name="check" /> Consulte saldos por base e por técnico.</li><li><Icon name="check" /> Identifique produtos abaixo do mínimo.</li><li><Icon name="check" /> Confira entradas, retiradas e devoluções.</li></ul><Link href="/login" className={s.roleLink}>Já tem acesso? Entrar no operacional <Icon name="arrow" /></Link></article>
+          <article className={s.roleCard}><span className={s.roleIcon}><Icon name="van" /></span><span className={s.eyebrow}>PORTAL DO TÉCNICO</span><h3>Seu material em mãos.<br />Seu registro no celular.</h3><ul><li><Icon name="check" /> Consulte as peças sob sua responsabilidade.</li><li><Icon name="check" /> Registre o uso durante o atendimento.</li><li><Icon name="check" /> Devolva as sobras e mantenha o saldo atualizado.</li></ul><Link href="/tecnico" className={s.roleLink}>Já tem acesso? Entrar como técnico <Icon name="arrow" /></Link></article>
+        </div>
       </section>
 
       <section className={`${s.section} ${s.problemSection}`} id="por-que-gridstock">
