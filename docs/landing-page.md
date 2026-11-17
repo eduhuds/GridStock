@@ -69,3 +69,13 @@ Conferência visual em navegador não realizada nesta revisão, conforme prefer�
 ## Mascote e demonstração animada
 
 Mascote restaurado acima da tela. Abas alternam a cada 5,5 segundos enquanto a demonstração está visível e com movimento permitido. Mouse e foco não interrompem a reprodução; escolher uma aba muda para exploração manual. Reproduzir avança imediatamente e retoma o ciclo automático. Controle explícito de reprodução e respeito à preferência de movimento reduzido do sistema e do hub de acessibilidade. Ícones e mensagem do mascote acompanham a mesma aba selecionada. Dados permanecem fictícios e não há chamadas à API operacional.
+
+## Revisão de landing e acesso — 17/11/2026
+
+Direção visual: manter os verdes da marca, o mascote original e a demonstração. A hierarquia de relatórios da referência fornecida inspira as superfícies arredondadas; a tipografia prioriza leitura e tarefas. A abertura agora combina mensagem à esquerda e um diagrama explícito da jornada do material à direita. Em telas menores, o diagrama secundário é omitido para priorizar a mensagem e o acesso.
+
+Login: seleção operacional/técnico com rotas por empresa preservadas, mostrar/ocultar senha, volta ao site e orientação para solicitar acesso ao administrador. Layout escopado à página de entrada, sem alteração em APIs ou banco.
+
+Controle de reprodução removido a pedido do responsável; a seleção manual de uma aba não desliga mais a alternância. Movimento reduzido continua sendo respeitado.
+
+Validação: build/TypeScript, 45 testes com administrador fictício em banco de memória, conferência visual desktop e celular, mostrar senha e navegação ao portal técnico. Login da conta de teste validado pela API de produção e sessão criada para a conferência encerrada. Não foram armazenadas credenciais no projeto. Projeto sem script de lint; verificação de diff sem erros.

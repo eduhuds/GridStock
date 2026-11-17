@@ -721,3 +721,36 @@
   .demoControls button { min-height: 40px; }
 }
 @media (prefers-reduced-motion: reduce) { .previewStage *, .previewStage *::before, .previewStage *::after { animation: none !important; transition: none !important; } }
+
+/* Product-first composition: strong left-aligned type and a literal stock journey. */
+.hero { display: grid; grid-template-columns: minmax(0,1.2fr) minmax(300px,.8fr); gap: 0 64px; padding: 64px max(32px,calc((100vw - 1240px)/2)) 0; }
+.heroIntro { text-align: left; align-self: center; }
+.hero h1 { font-size: clamp(2.8rem,4.7vw,4.9rem); max-width: 700px; margin-left: 0; }
+.hero .heroDescription { max-width: 550px; margin-left: 0; font-size: 1.06rem; }
+.heroActions, .hero .microcopy { justify-content: flex-start; }
+.heroActions { gap: 16px; }
+.heroCapabilities { grid-column: 1 / -1; justify-content: flex-start; margin-top: 40px; border-top: 1px solid #456050; padding-top: 24px; }
+.heroProduct, .audienceStrip { grid-column: 1 / -1; width: 100%; }
+.heroSummary { border: 1px solid #52705c; background: #203f32; border-radius: 28px; padding: 28px; align-self: center; }
+.summaryHeader { display: flex; align-items: center; justify-content: space-between; gap: 16px; color: #c2d7c2; font-size: .61rem; letter-spacing: .13em; }
+.heroSummary h2 { font-size: 2rem; letter-spacing: -.05em; margin: 22px 0; }
+.summaryRoute { display: grid; gap: 0; }
+.summaryRoute > div { display: flex; gap: 16px; position: relative; padding: 0 0 28px; }
+.summaryRoute > div:not(:last-child)::after { content: ''; width: 1px; background: #64805d; position: absolute; left: 23px; top: 48px; bottom: 0; }
+.summaryIcon { display: grid; place-items: center; width: 48px; height: 48px; flex-shrink: 0; border-radius: 14px; background: #d5ef87; color: #193d30; }
+.summaryRoute small { font-size: .56rem; letter-spacing: .12em; color: #bacdbd; }
+.summaryRoute h3 { font-size: 1.07rem; margin-top: 3px; color: white; letter-spacing: -.02em; }
+.hero .summaryRoute p { color: #bfcec3; font-size: .76rem; line-height: 1.6; margin-top: 5px; }
+.summaryFooter { border-top: 1px solid #4b6654; padding-top: 18px; display: flex; align-items: center; gap: 10px; color: #d3e3c9; font-size: .69rem; }
+.summaryFooter svg { width: 16px; }
+.hero .demoCompanion { min-height: 135px; }
+.hero .demoMascot { height: 135px; }
+.hero .productCaption { margin-bottom: 0; }
+.roleCard:first-child { background: #eaf0e4; }
+.roleCard { border-radius: 24px; }
+.sectionHeading { margin-bottom: 40px; }
+.faqItem { border-bottom-color: #d1dacb; }
+@media (max-width: 1100px) { .hero { gap: 0 30px; padding: 48px 28px 0; } .heroSummary { padding: 22px; } .heroActions { align-items: flex-start; } }
+@media (max-width: 800px) { .hero { grid-template-columns: 1fr; } .heroSummary { display: none; } .hero h1 { font-size: clamp(2.8rem,7vw,4.2rem); } .hero .heroDescription { max-width: 590px; } }
+@media (max-width: 600px) { .hero { padding: 36px 20px 0; } .hero h1 { font-size: clamp(2.3rem,9vw,3.2rem); } .hero .heroDescription { font-size: .95rem; } .heroCapabilities { margin-top: 26px; } .hero .demoCompanion { min-height: 120px; } .hero .demoMascot { height: 120px; } }
+:global(html[data-contrast="high"]) .hero .summaryRoute p { color: white; }

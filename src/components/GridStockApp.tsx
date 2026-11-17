@@ -218,6 +218,7 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
   const [legacyLogin, setLegacyLogin] = useState('');
   const [loginUser, setLoginUser] = useState<string>('');
   const [loginPass, setLoginPass] = useState<string>('');
+  const [showLoginPassword, setShowLoginPassword] = useState(false);
   const [loginError, setLoginError] = useState<string>('');
   const [loginLoading, setLoginLoading] = useState<boolean>(false);
 
@@ -886,7 +887,7 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
   if (!currentUser) {
     return (
       <>
-        <div className="login-shell">
+        <div className="login-shell refined-login">
           <aside className="login-aside">
             <div className="brand" title={company?.name || 'GRIDSTOCK'}>
               <img className="brand-mark" src="/gridstock-mark.svg" width={40} height={40} alt="" />
@@ -909,7 +910,7 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
             </div>
             <div className="login-hero">
               <span className="eyebrow" style={{ color: 'var(--lime)' }}>{companyConfig.fieldService ? 'OPERAÇÃO E CAMPO EM TEMPO REAL' : 'ESTOQUE ORGANIZADO, OPERAÇÃO CONECTADA'}</span>
-              <h1>Cada peça no lugar.<br /><span>Sua operação <br />em movimento.</span></h1>
+              <h1>O próximo passo <br />da sua operação <br /><span>começa aqui.</span></h1>
               <p>
                 {company?.tagline || (companyConfig.fieldService ? 'Conecte seus estoques à equipe em campo e acompanhe cada peça, da base ao atendimento.' : 'Acompanhe produtos, entradas, saídas e reposição em um só lugar.')}
               </p>
@@ -921,53 +922,29 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
                 <div className="flow-step step-3"><span className="flow-icon"><Icon name="check" /></span><strong>No destino</strong><small>Uso registrado</small></div>
               </div>}
             </div>
-            <svg
-              className="login-rising-wave"
-              viewBox="0 0 800 320"
-              preserveAspectRatio="none"
-              aria-hidden="true"
-            >
-              <defs>
-                <linearGradient id="gsRisingArea" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#d5ef87" stopOpacity="0.22" />
-                  <stop offset="100%" stopColor="#d5ef87" stopOpacity="0.0" />
-                </linearGradient>
-                <linearGradient id="gsRisingStroke" x1="0" y1="1" x2="1" y2="0">
-                  <stop offset="0%" stopColor="#d5ef87" stopOpacity="0.2" />
-                  <stop offset="55%" stopColor="#d5ef87" stopOpacity="0.65" />
-                  <stop offset="100%" stopColor="#d5ef87" stopOpacity="0.95" />
-                </linearGradient>
-              </defs>
-              {/* Camada secundária em contratempo (sobe e desce suave) */}
-              <g className="wave-layer wave-back">
-                <path
-                  className="wave-secondary-line"
-                  d="M -20 290 C 90 245, 150 280, 250 215 C 350 150, 420 210, 530 130 C 640 50, 710 105, 820 35"
-                />
-              </g>
-              {/* Linha principal crescente com picos e vales (movimento pra cima e pra baixo) */}
-              <g className="wave-layer wave-front">
-                <path
-                  className="wave-area-fill"
-                  d="M -20 280 C 80 220, 145 265, 240 190 C 335 115, 415 175, 520 95 C 625 15, 705 70, 820 12 L 820 340 L -20 340 Z"
-                />
-                <path
-                  className="wave-main-line"
-                  d="M -20 280 C 80 220, 145 265, 240 190 C 335 115, 415 175, 520 95 C 625 15, 705 70, 820 12"
-                />
-              </g>
-            </svg>
+            <div className="login-operation-card">
+              <div className="login-operation-top"><Icon name="grid" /><span>SEU ESPAÇO DE TRABALHO</span><Icon name="shield" /></div>
+              <h2>{entryRole === 'tech' ? 'Da sua carga ao atendimento.' : 'Do estoque à próxima entrega.'}</h2>
+              <p>{entryRole === 'tech' ? 'Consulte suas peças e mantenha cada utilização registrada.' : 'Produtos, saldos e movimentações organizados no mesmo lugar.'}</p>
+              <div className="login-operation-row"><span><Icon name="box" /></span><div><strong>{entryRole === 'tech' ? 'Meu estoque pessoal' : 'Seus estoques, conectados'}</strong><small>{entryRole === 'tech' ? 'Saiba quais peças estão com você' : 'Consulte o saldo de cada localização'}</small></div><Icon name="check" /></div>
+              <div className="login-operation-row"><span><Icon name="arrows" /></span><div><strong>Uma história para cada movimento</strong><small>Registros para acompanhar e conferir</small></div><Icon name="check" /></div>
+            </div>
             <div className="small" style={{ color: '#8da396', position: 'relative', zIndex: 1 }}>GRIDSTOCK · Sistema de Gestão de Estoque em Movimento</div>
           </aside>
           <main className="login-main">
+            <a className="login-back" href="/">← Voltar ao site</a>
             <form className="login-card" onSubmit={handleLogin}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                 <div className="login-entry-icon"><Icon name={entryRole === 'tech' ? 'van' : 'grid'} /></div>
                 <ThemeToggle showLabel />
               </div>
               <span className="page-eyebrow">{company ? `BEM-VINDO À ${company.name.toUpperCase()}` : 'BEM-VINDO AO GRIDSTOCK'}</span>
-              <h2>{entryRole === 'tech' ? 'Área do técnico' : 'Controle operacional'}</h2>
-              <p>{entryRole === 'tech' ? 'Entre para informar seu estoque pessoal e as peças que levará hoje.' : (companyConfig.fieldService ? 'Entre para acompanhar os estoques e a equipe em campo.' : 'Entre para gerenciar os produtos e estoques da sua empresa.')}</p>
+              <h2>{entryRole === 'tech' ? 'Seu dia em campo.' : 'Sua operação começa aqui.'}</h2>
+              <p>{entryRole === 'tech' ? 'Acesse suas peças e registre os atendimentos com seu CPF e senha.' : (companyConfig.fieldService ? 'Entre para acompanhar os estoques e a equipe em campo.' : 'Entre para gerenciar os produtos e estoques da sua empresa.')}</p>
+              {companyConfig.fieldService && <nav className="login-role-tabs" aria-label="Tipo de acesso">
+                <a href={companyBase || '/login'} aria-current={entryRole === 'ops' ? 'page' : undefined}><Icon name="grid" /><span>Operacional<small>Estoques e equipe</small></span></a>
+                <a href={`${companyBase}/tecnico`} aria-current={entryRole === 'tech' ? 'page' : undefined}><Icon name="van" /><span>Técnico<small>Materiais em campo</small></span></a>
+              </nav>}
               {loginError && <div className="error" role="alert">{loginError}</div>}
               {convertingCpf && <div className="field"><p>Abra o link da sua empresa e informe seu login antigo, sua senha atual e seu CPF verdadeiro. Esta conversão é feita uma única vez.</p><label htmlFor="legacy-login">Login anterior</label><input className="input" id="legacy-login" value={legacyLogin} onChange={e => setLegacyLogin(e.target.value)} autoComplete="username" required /></div>}
               <div className="field">
@@ -989,19 +966,21 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
                   className="input"
                   id="login-pass"
                   name="password"
-                  type="password"
+                  type={showLoginPassword ? 'text' : 'password'}
                   value={loginPass}
                   onChange={e => setLoginPass(e.target.value)}
                   placeholder="Sua senha de acesso"
                   autoComplete="current-password"
                   required
                 />
+                <button className="login-show-password" type="button" aria-controls="login-pass" aria-pressed={showLoginPassword} onClick={() => setShowLoginPassword(value => !value)}>{showLoginPassword ? 'Ocultar senha' : 'Mostrar senha'}</button>
               </div>
               <button className="button full" type="submit" disabled={loginLoading}>
                 <Icon name="check" />
                 {loginLoading ? 'Autenticando...' : convertingCpf ? 'Cadastrar CPF e entrar' : 'Entrar no sistema'}
               </button>
               <button type="button" className="text-link" onClick={() => { setConvertingCpf(!convertingCpf); setLoginError(''); }}>{convertingCpf ? 'Já tenho CPF cadastrado' : 'Primeiro acesso por CPF? Converter conta antiga'}</button>
+              <div className="login-access-help"><Icon name="shield" /><p>Precisa de acesso ou esqueceu sua senha?<br /><strong>Fale com o administrador da sua empresa.</strong></p></div>
               <div className="login-hint">
                 {entryRole === 'tech' ? 'Use seu CPF e a senha fornecida pelo administrador.' : (companyConfig.fieldService ? 'Cadastre a equipe e acompanhe as movimentações de cada técnico.' : 'Acesso exclusivo aos dados da sua empresa.')}
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 6, marginTop: 10 }}>

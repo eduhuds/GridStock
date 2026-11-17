@@ -97,20 +97,14 @@ export function ProductPreview({ mascot }: { mascot: ReactNode }) {
     }, 5500);
     return () => window.clearInterval(timer);
   }, [playing, visible, reduced]);
-  const selectTab = (index: number) => { setPlaying(false); setActive(index); };
+  const selectTab = (index: number) => { setActive(index); };
   const running = playing && visible && !reduced;
-  const togglePlayback = () => {
-    if (reduced) return;
-    if (!playing) setActive(value => (value + 1) % previewTabs.length);
-    setPlaying(value => !value);
-  };
   return <div ref={stage} className={s.previewStage} data-scene={active} data-running={running}>
     <div className={s.demoCompanion}>
       <div className={s.demoSpeech}><Icon name={previewTabs[active].icon} /><span>{['Tudo começa com o estoque organizado.', 'Agora, acompanhe sua equipe em campo.', 'Cada movimento fica na história.'][active]}</span></div>
       <div className={s.demoMascot}>{mascot}</div>
     </div>
     <div className={s.demoControls}><span><i /> Demonstração {playing && !reduced ? 'automática' : 'manual'} · dados ilustrativos</span>
-      <button type="button" disabled={reduced} aria-pressed={playing} onClick={togglePlayback}>{reduced ? 'Movimento reduzido ativo' : playing ? 'Pausar animação' : 'Reproduzir animação'}</button>
     </div>
     <div className={s.previewWrap}>
     <div className={s.previewChrome}><span className={s.chromeDots}><i /><i /><i /></span><span><Icon name="shield" /> Seu espaço de trabalho</span><span className={s.previewLabel}>DEMONSTRAÇÃO ILUSTRATIVA</span></div>
@@ -129,7 +123,7 @@ export function ProductPreview({ mascot }: { mascot: ReactNode }) {
         </div>
       </div>
     </div>
-    <div className={s.previewCaption}><Icon name="arrows" /> A animação troca as telas automaticamente. Escolha uma aba para explorar ou use o botão para pausar.</div>
+    <div className={s.previewCaption}><Icon name="arrows" /> Explore as abas. A demonstração acompanha automaticamente o fluxo da operação.</div>
   </div></div>;
 }
 

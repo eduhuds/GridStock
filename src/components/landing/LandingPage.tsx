@@ -40,11 +40,19 @@ export default function LandingPage() {
         <div className={s.heroGrid} aria-hidden="true" />
         <div className={s.heroIntro}>
           <span className={s.eyebrow}><span className={s.liveDot} /> ESTOQUE ORGANIZADO. OPERAÇÃO CONECTADA.</span>
-          <h1 id="hero-title">Seu estoque sob controle.<br /><span>Em cada etapa.</span></h1>
-          <p className={s.heroDescription}>Organize suas bases. Conecte sua equipe. Acompanhe cada movimentação.<br className={s.desktopBreak} /> Do produto na prateleira à peça utilizada em campo.</p>
+          <h1 id="hero-title">Cada peça no lugar.<br /><span>Cada movimento<br />no seu radar.</span></h1>
+          <p className={s.heroDescription}>Saiba o que está na base, com a equipe e o que já foi utilizado. Um espaço para organizar o estoque e acompanhar sua operação.</p>
           <div className={s.heroActions}><ContactLink /><a className={s.secondaryButton} href="#como-funciona"><span className={s.playIcon}><svg viewBox="0 0 16 16" width="10" height="10" aria-hidden="true"><path d="M4 2.5 13 8 4 13.5Z" fill="currentColor" /></svg></span> Veja como funciona</a></div>
           <p className={s.microcopy}><Icon name="check" /> Fale com a gente no WhatsApp para ter seu acesso.</p>
         </div>
+        <aside className={s.heroSummary} aria-label="O que o GRIDSTOCK conecta">
+          <div className={s.summaryHeader}><span>OPERAÇÃO CONECTADA</span><Icon name="grid" /></div>
+          <h2>Um produto.<br />Todo o caminho.</h2>
+          <div className={s.summaryRoute}>
+            {[['box','01','No estoque','Saldo e endereço de cada item.'],['van','02','Com a equipe','Peças sob responsabilidade do técnico.'],['check','03','No atendimento','Utilização registrada para conferência.']].map(([icon,number,title,text]) => <div key={number}><span className={s.summaryIcon}><Icon name={icon} /></span><div><small>ETAPA {number}</small><h3>{title}</h3><p>{text}</p></div></div>)}
+          </div>
+          <span className={s.summaryFooter}><Icon name="arrows" /> Entradas, retiradas, uso e devoluções.</span>
+        </aside>
         <div className={s.heroCapabilities} aria-label="Recursos da plataforma"><span><Icon name="box" /> Múltiplos estoques</span><span><Icon name="users" /> Acessos por perfil</span><span><Icon name="arrows" /> Histórico de movimentações</span></div>
         <div className={s.heroProduct}>
           <div className={s.productCaption}><span>CONHEÇA SEU PRÓXIMO ESPAÇO DE TRABALHO</span><a href="#como-funciona">Explore o fluxo <Icon name="arrow" /></a></div>
