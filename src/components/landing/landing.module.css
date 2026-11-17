@@ -754,3 +754,62 @@
 @media (max-width: 800px) { .hero { grid-template-columns: 1fr; } .heroSummary { display: none; } .hero h1 { font-size: clamp(2.8rem,7vw,4.2rem); } .hero .heroDescription { max-width: 590px; } }
 @media (max-width: 600px) { .hero { padding: 36px 20px 0; } .hero h1 { font-size: clamp(2.3rem,9vw,3.2rem); } .hero .heroDescription { font-size: .95rem; } .heroCapabilities { margin-top: 26px; } .hero .demoCompanion { min-height: 120px; } .hero .demoMascot { height: 120px; } }
 :global(html[data-contrast="high"]) .hero .summaryRoute p { color: white; }
+
+/* Light canvas requested by Hudson: green is an accent, not a full-page surface.
+   The supplied screenshot anchors the spacing correction; preserve mascot/demo. */
+.page { --lp-paper: #f8faf7; --lp-ink: #253a30; --lp-muted: #5c6f62; }
+.header { max-width: 1360px; }
+.hero { max-width: 1440px; margin: 28px auto 0; padding: 48px 48px 0; gap: 0 72px; border-radius: 0; background: transparent; color: var(--lp-ink); }
+.hero h1 { font-size: clamp(2.8rem,4.8vw,5.4rem); line-height: 1.08; letter-spacing: -.055em; }
+.hero h1 > span { color: #568b42; }
+.hero .eyebrow { color: #4c713c; }
+.hero .liveDot { background: #79a54d; }
+.hero .heroDescription { color: #5c6f62; font-size: 1.12rem; }
+.hero .primaryButton { background: #cfea9b; color: #223d28; border: 1px solid #b7d986; box-shadow: 0 6px 18px #4b6b3010; }
+.hero .primaryButton:hover { background: #bddd85; }
+.hero .secondaryButton { color: #344f3c; }
+.hero .playIcon { border-color: #a9bea0; }
+.hero .secondaryButton:hover .playIcon { background: #e8f1df; }
+.hero .microcopy { color: #66775e; }
+.heroSummary { background: #fff; border: 1px solid #dce6d5; box-shadow: 0 24px 60px -30px #426e3433; border-radius: 30px; padding: 32px; }
+.summaryHeader { color: #66795c; }
+.heroSummary h2 { color: #29412f; }
+.summaryRoute h3 { color: #29412f; }
+.summaryRoute small { color: #708266; }
+.hero .summaryRoute p { color: #61735b; }
+.summaryRoute > div:not(:last-child)::after { background: #d3e3c7; }
+.summaryIcon { background: #edf5e3; border: 1px solid #dbe9c9; color: #527d37; }
+.summaryFooter { border-color: #e2eadb; color: #5f7654; }
+.heroCapabilities { border-color: #dce7d5; color: #627557; gap: 14px 36px; }
+.heroCapabilities svg { color: #699148; }
+.heroProduct { max-width: none; margin-top: 44px; }
+.productCaption, .productCaption a { color: #627557; }
+.demoSpeech { background: #fff; color: #48603b; border-color: #d5e4c9; box-shadow: 0 8px 24px #526f3510; }
+.demoSpeech svg { color: #6d9947; }
+.demoControls { color: #6b7d61; }
+.demoControls i { background: #7eab4f; }
+.previewWrap { background: #edf3e7; border-color: #d0dfc4; box-shadow: 0 30px 70px -35px #3d5b3545; }
+.hero .audienceStrip { border-color: #dce7d5; margin-top: 32px; }
+.hero .audienceStrip > span { color: #6b7d61; }
+.hero .audienceStrip > div > span { color: #587249; }
+.finalCard { background: #e8f2dc; border: 1px solid #cfdfbd; color: #29412f; }
+.finalCopy h2, .finalCopy .eyebrow { color: #29412f; }
+.finalCopy > p, .finalMicrocopy { color: #587249; }
+.finalCard .lightButton { background: #cfea9b; color: #223d28; border: 1px solid #b7d986; }
+.summaryRoute > div { animation: routeArrival .65s ease both; }
+.summaryRoute > div:nth-child(1) { animation-delay: .15s; }
+.summaryRoute > div:nth-child(2) { animation-delay: .4s; }
+.summaryRoute > div:nth-child(3) { animation-delay: .65s; }
+.summaryIcon svg { animation: routePulse 4.5s ease-in-out; }
+.summaryRoute > div:nth-child(2) .summaryIcon svg { animation-delay: .6s; }
+.summaryRoute > div:nth-child(3) .summaryIcon svg { animation-delay: 1.2s; }
+.heroSummary { animation: routeArrival .8s ease both; }
+.roleCard, .featureCard { transition: transform .25s ease, box-shadow .25s ease; }
+@media (hover: hover) { .roleCard:hover, .featureCard:hover { transform: translateY(-5px); box-shadow: 0 18px 40px -22px #355d3435; } }
+@keyframes routeArrival { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes routePulse { 0%, 100% { transform: translateY(0) scale(1); } 30%, 65% { transform: translateY(-5px) scale(1.12); } }
+@media (max-width: 1100px) { .hero { padding: 36px 28px 0; gap: 0 30px; } .heroSummary { padding: 24px; } }
+@media (max-width: 800px) { .hero { margin-top: 20px; } }
+@media (max-width: 600px) { .hero { padding: 24px 22px 0; margin: 12px 0 0; } .hero h1 { font-size: clamp(2.5rem,10vw,3.4rem); } .hero .heroDescription { font-size: 1rem; } .heroProduct { margin-top: 32px; } }
+@media (prefers-reduced-motion: reduce) { .summaryRoute > div, .summaryIcon svg, .heroSummary { animation: none !important; } .roleCard, .featureCard { transition: none !important; } }
+:global(html[data-contrast="high"]) .hero p, :global(html[data-contrast="high"]) .hero .eyebrow, :global(html[data-contrast="high"]) .hero .summaryRoute p, :global(html[data-contrast="high"]) .finalCopy p, :global(html[data-contrast="high"]) .finalCopy .eyebrow { color: #243a23; }
