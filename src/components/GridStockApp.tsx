@@ -1344,8 +1344,9 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
       <section className="setup-panel">
         <div className="setup-head">
           <div>
-            <h2>Configuração da Operação</h2>
-            <p>Cadastre os estoques, produtos e a equipe da sua operação abaixo.</p>
+            <h2>Prepare sua operação</h2>
+            <p>Comece pelos cadastros abaixo. Seus indicadores serão preenchidos com as movimentações.</p>
+            <span className="setup-progress">{[hasW, hasP, hasT].filter(Boolean).length} de 3 etapas concluídas</span>
           </div>
           <button hidden={!!company} className="button secondary" onClick={() => setModal({ type: 'reset', mode: 'seed' })}>
             <Icon name="box" />Carregar base de exemplo
@@ -1422,7 +1423,7 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
               onClick={() => setScannerTarget('quick-withdraw')}
               title="Aponte para o QR Code da peça para enviar ao técnico"
             >
-              <Icon name="qr" />Bipar QR p/ Retirada
+              <Icon name="qr" />Retirar com QR Code
             </button>
             <button className="button" onClick={() => openMovementModal('withdraw')}>
               <Icon name="plus" />Registrar movimentação
@@ -1430,8 +1431,8 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
           </div>
         </div>
         {renderOpsStats()}
-        <DashboardCharts state={state} onOpenStock={() => navigate('stock')} />
         {renderSetupPanel()}
+        <DashboardCharts state={state} onOpenStock={() => navigate('stock')} />
         {renderWarehouseLowStockBanner()}
         <div className="grid-main dashboard-locations">
           <section className="panel">
@@ -1599,7 +1600,7 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
                   onClick={() => setScannerTarget('quick-withdraw')}
                   title="Apontar câmera para o QR Code da peça e enviar ao técnico"
                 >
-                  <Icon name="qr" />Bipar QR p/ Retirada
+                  <Icon name="qr" />Retirar com QR Code
                 </button>
                 <button className="button secondary" onClick={() => openMovementModal('entry')}>
                   <Icon name="in" />Entrada de estoque
@@ -1964,7 +1965,7 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
                   onClick={() => setScannerTarget('quick-withdraw')}
                   title="Bipar QR Code da peça para enviar ao técnico"
                 >
-                  <Icon name="qr" />Bipar QR p/ Retirada
+                  <Icon name="qr" />Retirar com QR Code
                 </button>
                 <button
                   className="button secondary"
