@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from 'react';
 import { Icon } from '@/components/icons';
-import { WHATSAPP_URL } from './config';
+import { WHATSAPP_NUMBER, WHATSAPP_URL } from './config';
 import s from './landing.module.css';
 
 export function Reveal({ children, className = '', delay = 0 }: { children: ReactNode; className?: string; delay?: number }) {
@@ -38,9 +38,9 @@ export function LandingHeader() {
   }, [open]);
   return <header className={s.header}>
     <Link href="/" className={s.brand} aria-label="GridStock, início"><img src="/gridstock-mark.svg" width="34" height="34" alt="" />GRIDSTOCK<span className={s.brandPeriod}>.</span></Link>
-    <nav className={s.desktopNav} aria-label="Menu principal"><a href="#recursos">Recursos</a><a href="#como-funciona">Como funciona</a><a href="#duvidas">Dúvidas</a></nav>
-    <div className={s.headerActions}><Link href="/login" className={s.loginLink}>Entrar <Icon name="arrow" /></Link><a className={s.headerCta} href={WHATSAPP_URL} target="_blank" rel="noopener noreferrer">Solicitar acesso <Icon name="arrow" /></a><button ref={toggleRef} type="button" className={s.menuButton} aria-label={open ? 'Fechar menu' : 'Abrir menu'} aria-expanded={open} aria-controls="landing-mobile-menu" onClick={() => setOpen(!open)}><Icon name={open ? 'close' : 'menu'} /></button></div>
-    <nav id="landing-mobile-menu" className={s.mobileNav} aria-label="Menu móvel" hidden={!open}><a href="#recursos" onClick={() => setOpen(false)}>Recursos</a><a href="#como-funciona" onClick={() => setOpen(false)}>Como funciona</a><a href="#duvidas" onClick={() => setOpen(false)}>Dúvidas</a><a href={WHATSAPP_URL} target="_blank" rel="noopener noreferrer" onClick={() => setOpen(false)}>Solicitar acesso pelo WhatsApp <Icon name="arrow" /></a></nav>
+    <nav className={s.desktopNav} aria-label="Menu principal"><a href="#sua-operacao">Para sua empresa</a><a href="#como-funciona">Como funciona</a><a href="#duvidas">Dúvidas</a></nav>
+    <div className={s.headerActions}><Link href="/login" className={s.loginLink}>Entrar <Icon name="arrow" /></Link><a className={s.headerCta} href={WHATSAPP_URL} target="_blank" rel="noopener noreferrer">Quero conhecer <Icon name="arrow" /></a><button ref={toggleRef} type="button" className={s.menuButton} aria-label={open ? 'Fechar menu' : 'Abrir menu'} aria-expanded={open} aria-controls="landing-mobile-menu" onClick={() => setOpen(!open)}><Icon name={open ? 'close' : 'menu'} /></button></div>
+    <nav id="landing-mobile-menu" className={s.mobileNav} aria-label="Menu móvel" hidden={!open}><a href="#sua-operacao" onClick={() => setOpen(false)}>Para sua empresa</a><a href="#como-funciona" onClick={() => setOpen(false)}>Como funciona</a><a href="#duvidas" onClick={() => setOpen(false)}>Dúvidas</a><a href={WHATSAPP_URL} target="_blank" rel="noopener noreferrer" onClick={() => setOpen(false)}>Quero uma demonstração <Icon name="arrow" /></a></nav>
   </header>;
 }
 
@@ -147,6 +147,26 @@ export function Workflow() {
         <div className={s.flowEvent} key={`event-${selected}`}><span><Icon name={step.icon} /></span><div><strong>{step.event}</strong><small>{step.detail}</small></div><Icon name="check" /></div>
         <div className={s.flowProgress} style={{ '--progress': `${(selected + 1) * 25}%` } as CSSProperties}><i /></div>
       </div>
+    </div>
+  </div>;
+}
+
+
+const operationProfiles = [
+  { label: 'Estoques e almoxarifados', icon: 'box', title: 'Encontre a peça. Confira o saldo. Siga a operação.', description: 'Organize as bases e dê à equipe uma referência para consultar materiais e registrar movimentações.', points: ['Produtos com corredor e prateleira.', 'Saldos e transferências entre estoques.', 'Avisos de estoque mínimo para orientar a reposição.'], focus: ['Localização', 'Saldo', 'Reposição'], note: 'Para quem cuida de uma ou de várias bases.' },
+  { label: 'Equipes em campo', icon: 'van', title: 'O material sai da base. A informação volta com ele.', description: 'Conecte quem entrega o material a quem utiliza. O operacional acompanha; o técnico registra pelo celular.', points: ['Estoque individual e declaração de saída do dia.', 'Retirada, uso em atendimento e devolução.', 'Histórico com responsável, OS e local informado.'], focus: ['Retirada', 'Utilização', 'Devolução'], note: 'Para instalação, manutenção e assistência técnica.' },
+  { label: 'Comércio e estoque geral', icon: 'grid', title: 'O controle que sua rotina precisa, sem menus de campo.', description: 'Configure a empresa para trabalhar com produtos, entradas e saídas. O módulo de técnicos pode ficar desativado.', points: ['Catálogo de produtos e endereçamento.', 'Entradas, saídas e acompanhamento de saldos.', 'Acessos da equipe e histórico para conferência.'], focus: ['Entrada', 'Estoque', 'Saída'], note: 'Foco no estoque. Não substitui um caixa ou emissor fiscal.' },
+];
+
+export function OperationFit() {
+  const [selected, setSelected] = useState(0);
+  const profile = operationProfiles[selected];
+  const contact = `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(`Olá! Quero conhecer o GRIDSTOCK para ${profile.label.toLowerCase()}. Podemos conversar sobre uma demonstração e as condições para minha empresa?`)}`;
+  return <div className={s.operationFit}>
+    <div className={s.fitTabs} role="tablist" aria-label="Tipo de operação">{operationProfiles.map((item, index) => <button type="button" key={item.label} role="tab" id={`fit-tab-${index}`} aria-selected={selected === index} aria-controls="fit-panel" tabIndex={selected === index ? 0 : -1} onClick={() => setSelected(index)} onKeyDown={event => moveTab(event, index, operationProfiles.length, setSelected)}><Icon name={item.icon} />{item.label}<Icon name="arrow" /></button>)}</div>
+    <div id="fit-panel" role="tabpanel" aria-labelledby={`fit-tab-${selected}`} tabIndex={0} className={s.fitPanel}>
+      <div key={selected} className={s.fitContent}><span className={s.eyebrow}>{profile.label}</span><h3>{profile.title}</h3><p>{profile.description}</p><ul>{profile.points.map(point => <li key={point}><Icon name="check" />{point}</li>)}</ul><a className={s.primaryButton} href={contact} target="_blank" rel="noopener noreferrer">Quero ver para minha empresa <Icon name="arrow" /></a><small>{profile.note}</small></div>
+      <div className={s.fitVisual} aria-hidden="true"><span className={s.fitVisualIcon}><Icon name={profile.icon} /></span><span>SUA OPERAÇÃO, CONECTADA</span>{profile.focus.map((item, index) => <div key={item}><i>0{index + 1}</i><strong>{item}</strong><Icon name="check" /></div>)}<p>Os módulos e limites são definidos na configuração da empresa.</p></div>
     </div>
   </div>;
 }

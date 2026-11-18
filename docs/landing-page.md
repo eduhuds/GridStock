@@ -79,3 +79,29 @@ Login: seleção operacional/técnico com rotas por empresa preservadas, mostrar
 Controle de reprodução removido a pedido do responsável; a seleção manual de uma aba não desliga mais a alternância. Movimento reduzido continua sendo respeitado.
 
 Validação: build/TypeScript, 45 testes com administrador fictício em banco de memória, conferência visual desktop e celular, mostrar senha e navegação ao portal técnico. Login da conta de teste validado pela API de produção e sessão criada para a conferência encerrada. Não foram armazenadas credenciais no projeto. Projeto sem script de lint; verificação de diff sem erros.
+
+
+## Apresentação comercial — 18/11/2026
+
+Objetivo: ajudar o responsável por estoque a entender a oferta e pedir uma demonstração.
+Direção: superfície clara e verde-lima, tipografia expressiva e um exemplo concreto de material.
+A primeira tela explica gestão de estoque, apresenta o benefício e oferece contato ou exploração.
+Mantidos mascote, exemplo de dashboard, fluxo de material, FAQ e login. Nenhum dado real é exibido.
+
+Novo seletor de operação: estoques/almoxarifados, equipes em campo e comércio/estoque geral.
+A seleção muda recursos, limitações e a mensagem preparada no WhatsApp; não envia mensagens.
+Condições, módulos e limites são tratados no atendimento. Não há preço, depoimento, número de clientes,
+garantia de resultado ou urgência artificial. Isso é apresentação comercial, não aprovação técnica
+para lançar o sistema; as pendências de persistência da auditoria continuam separadas.
+
+Contrato visual: desktop 1440×900 e celular 390×844; ação principal visível na abertura;
+sem estouro horizontal; navegação das abas por setas com foco visível e conteúdo associado.
+Estados: seleção bem-sucedida exibe recursos e CTA contextual. Carregamento, vazio, erro,
+parcial e permissão não se aplicam ao seletor: conteúdo estático local, sem consulta de API.
+A demonstração é identificada como ilustrativa; contato abre WhatsApp, fora da página.
+
+Verificação: build de produção; revisão visual nos dois tamanhos; menu móvel abre/fecha por Escape;
+abas de operação por clique e teclado; conteúdo e URL contextual conferidos; âncora para demonstração,
+aba de movimentações e FAQ de contratação conferidos. Preferência de movimento reduzido respeitada
+pelas regras CSS e lógica existentes. Fotos/câmera, login e APIs não fazem parte desta alteração.
+Evidências locais: pasta landing-sales-evidence ao lado deste checkout.

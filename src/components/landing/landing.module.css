@@ -813,3 +813,121 @@
 @media (max-width: 600px) { .hero { padding: 24px 22px 0; margin: 12px 0 0; } .hero h1 { font-size: clamp(2.5rem,10vw,3.4rem); } .hero .heroDescription { font-size: 1rem; } .heroProduct { margin-top: 32px; } }
 @media (prefers-reduced-motion: reduce) { .summaryRoute > div, .summaryIcon svg, .heroSummary { animation: none !important; } .roleCard, .featureCard { transition: none !important; } }
 :global(html[data-contrast="high"]) .hero p, :global(html[data-contrast="high"]) .hero .eyebrow, :global(html[data-contrast="high"]) .hero .summaryRoute p, :global(html[data-contrast="high"]) .finalCopy p, :global(html[data-contrast="high"]) .finalCopy .eyebrow { color: #243a23; }
+
+/* Product story: a light workspace, a concrete material journey, one contact action. */
+.hero { grid-template-columns: minmax(0,1.14fr) minmax(0,1fr); gap: 0 70px; padding-top: 50px; }
+.hero h1 { font-size: clamp(3rem,4.65vw,5rem); margin-top: 22px; letter-spacing: -.065em; }
+.hero .heroDescription { max-width: 540px; font-size: 1.05rem; line-height: 1.8; margin-top: 24px; }
+.hero .heroActions { margin-top: 28px; gap: 14px 22px; flex-wrap: wrap; }
+.hero .primaryButton { min-height: 54px; background: #d5ef87; border-color: #bfd97a; padding: 14px 23px; font-size: .92rem; }
+.hero .secondaryButton { font-size: .88rem; }
+.hero .microcopy { max-width: 500px; font-size: .72rem; line-height: 1.6; align-items: flex-start; }
+.hero .microcopy svg { margin-top: 3px; flex-shrink: 0; }
+.journeyBoard { position: relative; background: #eaf1e1; border: 1px solid #d8e4cb; border-radius: 30px; padding: 30px; align-self: center; box-shadow: 0 26px 50px -38px #34562950; }
+.journeyTop { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
+.journeyTop > span:first-child { display: flex; align-items: center; gap: 8px; font-size: .58rem; font-weight: 700; letter-spacing: .12em; color: #4c663d; }
+.journeyTop svg { width: 16px; height: 16px; }
+.sampleTag { font-size: .6rem; color: #617357; white-space: nowrap; }
+.journeyBoard h2 { font-size: clamp(2rem,3vw,2.9rem); line-height: 1.13; margin: 30px 0 25px; letter-spacing: -.055em; }
+.journeyItem { display: flex; align-items: center; gap: 16px; padding-bottom: 28px; }
+.journeyBox { width: 64px; height: 64px; background: #d5ef87; border: 1px solid #c4da92; border-radius: 18px; display: grid; place-items: center; transform: rotate(-7deg); }
+.journeyBox svg { width: 30px; height: 30px; }
+.journeyItem > div { min-width: 0; }
+.journeyItem small { display: block; font-size: .55rem; letter-spacing: .1em; color: #647858; }
+.journeyItem strong { display: block; font-size: 1rem; margin: 4px 0; }
+.journeyItem > div > span { display: block; font-size: .69rem; color: #5e7351; }
+.journeySteps { display: grid; grid-template-columns: repeat(3,1fr); padding-top: 6px; position: relative; }
+.journeySteps::before { content: ''; position: absolute; top: 27px; left: 16%; right: 16%; height: 2px; background: #bdcdae; }
+.journeySteps > div { position: relative; text-align: center; display: flex; flex-direction: column; align-items: center; }
+.journeyNode { display: grid; place-items: center; width: 44px; height: 44px; background: #fff; border: 1px solid #d0ddc4; border-radius: 50%; color: #527344; }
+.journeySteps > div:nth-child(2) .journeyNode { background: #f7ebd3; border-color: #e7d7b8; color: #88652e; }
+.journeySteps > div:nth-child(3) .journeyNode { background: #d5ef87; border-color: #bfd97a; }
+.journeySteps strong { font-size: 2rem; letter-spacing: -.06em; margin-top: 13px; font-weight: 650; }
+.journeySteps strong small { font-size: .7rem; letter-spacing: 0; font-weight: 400; color: #607553; }
+.journeySteps > div > span:last-of-type { font-size: .75rem; }
+.journeySteps > div > small { color: #758666; font-size: .57rem; margin-top: 7px; }
+.journeyResult { border-top: 1px solid #ceddc0; margin-top: 25px; padding-top: 20px; display: flex; gap: 12px; align-items: center; }
+.journeyResult > span { width: 30px; height: 30px; display: grid; place-items: center; background: #d7e7c5; border-radius: 50%; flex-shrink: 0; }
+.journeyResult svg { width: 15px; height: 15px; }
+.journeyResult strong { font-size: .76rem; }
+.journeyResult p { font-size: .67rem; color: #5e7351; margin-top: 2px; }
+.heroCapabilities { padding: 24px 0; margin-top: 48px; border-bottom: 1px solid #dce7d5; justify-content: space-between; gap: 16px; font-size: .82rem; }
+.heroProduct { margin-top: 60px; scroll-margin-top: 120px; }
+.demoIntro { display: flex; justify-content: space-between; align-items: flex-end; gap: 30px; }
+.demoIntro h2 { font-size: clamp(2rem,3.2vw,3rem); margin-top: 12px; }
+.demoIntro > p { max-width: 340px; font-size: .9rem; line-height: 1.8; padding-bottom: 4px; }
+.hero .demoCompanion { min-height: 116px; }
+.hero .demoMascot { height: 116px; }
+.hero .audienceStrip { padding-top: 26px; }
+.fitSection { padding-top: 72px; padding-bottom: 65px; }
+.operationFit { border: 1px solid #dae3d3; border-radius: 26px; background: #fff; overflow: hidden; }
+.fitTabs { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); background: #f0f4eb; border-bottom: 1px solid #dae3d3; padding: 8px; gap: 8px; }
+.fitTabs button { display: flex; align-items: center; gap: 10px; min-width: 0; padding: 16px; border-radius: 14px; background: transparent; color: #5b6d51; font-size: .8rem; text-align: left; font-weight: 600; border: 1px solid transparent; }
+.fitTabs button > svg { width: 18px; height: 18px; }
+.fitTabs button > svg:last-child { width: 14px; margin-left: auto; }
+.fitTabs button[aria-selected="true"] { background: #fff; color: #294b33; border-color: #d6e0ce; box-shadow: 0 3px 8px #304d2610; }
+.fitTabs button:hover { color: #294b33; background: #ffffffa0; }
+.fitPanel { display: grid; grid-template-columns: 1.5fr 1fr; gap: 60px; padding: 42px; }
+.fitContent { animation: fitReveal .3s ease both; }
+.fitContent h3 { font-size: clamp(1.6rem,2.4vw,2.1rem); max-width: 500px; margin: 14px 0; }
+.fitContent > p { font-size: .9rem; line-height: 1.8; }
+.fitContent ul { list-style: none; padding: 0; display: grid; gap: 12px; margin: 23px 0 28px; }
+.fitContent li { display: flex; gap: 10px; font-size: .82rem; color: #4e6345; }
+.fitContent li svg { width: 16px; height: 16px; margin-top: 3px; color: #608646; flex-shrink: 0; }
+.fitContent .primaryButton { font-size: .85rem; min-height: 50px; }
+.fitContent > small { display: block; font-size: .69rem; color: #6a7c60; margin-top: 16px; }
+.fitVisual { align-self: center; padding: 30px 0 30px 30px; border-left: 1px solid #e3e9de; }
+.fitVisualIcon { width: 60px; height: 60px; border-radius: 18px; display: grid; place-items: center; background: #e8f1db; color: #54783c; margin-bottom: 20px; }
+.fitVisualIcon svg { width: 28px; height: 28px; }
+.fitVisual > span:nth-child(2) { font-size: .55rem; letter-spacing: .14em; color: #6b7c61; }
+.fitVisual > div { display: flex; align-items: center; gap: 14px; border-bottom: 1px solid #e2e9dc; padding: 17px 0; }
+.fitVisual i { font-size: .66rem; font-style: normal; color: #869b78; }
+.fitVisual strong { font-size: .93rem; font-weight: 550; }
+.fitVisual > div svg { width: 15px; height: 15px; margin-left: auto; color: #6d974b; }
+.fitVisual p { font-size: .71rem; line-height: 1.7; margin-top: 20px; }
+.problemSection { padding-top: 40px; }
+.finalCopy > p { max-width: 450px; }
+@keyframes fitReveal { from { opacity: .3; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+@media (max-width: 1100px) {
+  .hero { gap: 0 34px; }
+  .hero h1 { font-size: clamp(2.8rem,4.8vw,4.3rem); }
+  .journeyBoard { padding: 24px; }
+  .journeyTop { flex-wrap: wrap; gap: 8px; }
+  .fitPanel { gap: 28px; padding: 30px; }
+}
+@media (max-width: 800px) {
+  .hero { grid-template-columns: 1fr; gap: 32px; padding-top: 28px; }
+  .hero h1 { font-size: clamp(2.8rem,7.5vw,4.2rem); }
+  .hero .heroDescription { max-width: 600px; }
+  .journeyBoard { width: 100%; max-width: 600px; justify-self: center; }
+  .heroCapabilities { margin-top: 0; justify-content: flex-start; }
+  .heroProduct { margin-top: 20px; }
+  .demoIntro { display: block; }
+  .demoIntro > p { max-width: 500px; margin-top: 18px; }
+  .fitTabs button { flex-wrap: wrap; padding: 12px; font-size: .73rem; }
+  .fitTabs button > svg:last-child { display: none; }
+  .fitPanel { grid-template-columns: 1fr; }
+  .fitVisual { display: none; }
+}
+@media (max-width: 600px) {
+  .hero { padding-left: 22px; padding-right: 22px; }
+  .hero h1 { font-size: clamp(2.65rem,10.5vw,3.5rem); }
+  .hero .eyebrow { font-size: .56rem; letter-spacing: .1em; }
+  .hero .heroDescription { font-size: .95rem; }
+  .hero .heroActions { align-items: stretch; gap: 10px; }
+  .hero .primaryButton { width: 100%; }
+  .hero .secondaryButton { justify-content: center; width: 100%; }
+  .journeyBoard { padding: 22px; border-radius: 24px; }
+  .journeyBoard h2 { font-size: 2rem; margin: 22px 0; }
+  .journeyBox { width: 52px; height: 52px; flex-shrink: 0; }
+  .journeyItem > div > span { font-size: .62rem; }
+  .heroCapabilities { flex-direction: column; gap: 13px; font-size: .78rem; }
+  .heroCapabilities > span { flex: auto; }
+  .fitTabs { grid-template-columns: 1fr; gap: 4px; }
+  .fitTabs button { flex-wrap: nowrap; min-height: 46px; padding: 12px; font-size: .82rem; }
+  .fitTabs button > svg:last-child { display: block; }
+  .fitPanel { padding: 24px; }
+  .fitContent .primaryButton { width: 100%; padding-left: 12px; padding-right: 12px; font-size: .78rem; }
+  .operationFit { border-radius: 22px; }
+}
+@media (prefers-reduced-motion: reduce) { .fitContent { animation: none; } }

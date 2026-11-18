@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { Icon } from '@/components/icons';
 import { LegalFooterLinks } from '@/components/LegalAccessibilityHub';
-import { LandingHeader, ProductPreview, Reveal, Workflow } from './LandingInteractions';
+import { LandingHeader, OperationFit, ProductPreview, Reveal, Workflow } from './LandingInteractions';
 import { WHATSAPP_URL } from './config';
 import s from './landing.module.css';
 
@@ -9,7 +9,7 @@ function Brand() {
   return <span className={s.brand}><img src="/gridstock-mark.svg" width="34" height="34" alt="" />GRIDSTOCK<span className={s.brandPeriod}>.</span></span>;
 }
 
-function ContactLink({ children = 'Quero conhecer o GridStock', light = false }: { children?: React.ReactNode; light?: boolean }) {
+function ContactLink({ children = 'Quero uma demonstração', light = false }: { children?: React.ReactNode; light?: boolean }) {
   return <a className={`${s.primaryButton} ${light ? s.lightButton : ''}`} href={WHATSAPP_URL} target="_blank" rel="noopener noreferrer">{children}<Icon name="arrow" /></a>;
 }
 
@@ -24,7 +24,7 @@ function Parcel() {
 const faqs = [
   ['O GridStock pode ser configurado para minha empresa?', 'Sim. Na apresentação, entendemos sua rotina e configuramos os módulos de equipe em campo, saídas e transferências, além dos limites de usuários e estoques. O ambiente também pode receber o nome, a cor e a mensagem de boas-vindas da sua empresa.'],
   ['Para quem é o GridStock?', 'Para empresas que precisam organizar materiais em almoxarifados e acompanhar peças com equipes externas, como operações de instalação, manutenção e assistência técnica. Também há configurações para comércio e estoque geral. Na conversa, entendemos o que faz sentido para a sua operação.'],
-  ['Como consigo acesso para a minha empresa?', 'Clique em “Solicitar acesso pelo WhatsApp” e fale com a nossa equipe. O cadastro da empresa e a liberação do primeiro responsável são feitos por nós. Depois, você entra no sistema com CPF e senha.'],
+  ['Como posso conhecer o sistema?', 'Clique em “Quero uma demonstração” para falar pelo WhatsApp. Conte como funciona seu estoque e conheça os recursos e as condições de contratação. A liberação do ambiente é combinada com a nossa equipe.'],
   ['O técnico consegue usar pelo celular?', 'Sim. O portal do técnico é acessado pelo navegador do celular, com conexão à internet. Nele, o profissional consulta os materiais sob sua responsabilidade e registra retiradas, utilizações e devoluções.'],
   ['Consigo controlar mais de um almoxarifado?', 'Sim. Você pode organizar bases, identificar produtos por corredor e prateleira e registrar transferências entre almoxarifados. Os módulos e limites de acesso são definidos na configuração da sua empresa.'],
   ['Como funciona a localização do material utilizado?', 'Ao registrar a utilização, o técnico pode permitir o acesso à localização do dispositivo. As coordenadas ficam vinculadas à movimentação e podem ser consultadas no mapa. Se o GPS não estiver disponível, o local pode ser informado manualmente. Não é rastreamento contínuo do técnico.'],
@@ -39,38 +39,36 @@ export default function LandingPage() {
       <section className={s.hero} aria-labelledby="hero-title">
         <div className={s.heroGrid} aria-hidden="true" />
         <div className={s.heroIntro}>
-          <span className={s.eyebrow}><span className={s.liveDot} /> ESTOQUE ORGANIZADO. OPERAÇÃO CONECTADA.</span>
-          <h1 id="hero-title">Cada peça no lugar.<br /><span>Cada movimento<br />no seu radar.</span></h1>
-          <p className={s.heroDescription}>Saiba o que está na base, com a equipe e o que já foi utilizado. Um espaço para organizar o estoque e acompanhar sua operação.</p>
-          <div className={s.heroActions}><ContactLink /><a className={s.secondaryButton} href="#como-funciona"><span className={s.playIcon}><svg viewBox="0 0 16 16" width="10" height="10" aria-hidden="true"><path d="M4 2.5 13 8 4 13.5Z" fill="currentColor" /></svg></span> Veja como funciona</a></div>
-          <p className={s.microcopy}><Icon name="check" /> Fale com a gente no WhatsApp para ter seu acesso.</p>
+          <span className={s.eyebrow}><span className={s.liveDot} /> GESTÃO DE ESTOQUE, DA BASE AO CAMPO</span>
+          <h1 id="hero-title">Saiba onde está<br />cada peça.<br /><span>Assuma o controle.</span></h1>
+          <p className={s.heroDescription}>Chega de depender de mensagens para descobrir um saldo. Organize seus estoques, acompanhe os materiais com a equipe e consulte cada movimentação em um só lugar.</p>
+          <div className={s.heroActions}><ContactLink /><a className={s.secondaryButton} href="#demonstracao"><span className={s.playIcon}><svg viewBox="0 0 16 16" width="10" height="10" aria-hidden="true"><path d="M4 2.5 13 8 4 13.5Z" fill="currentColor" /></svg></span> Explorar o sistema</a></div>
+          <p className={s.microcopy}><Icon name="check" /> Atendimento direto pelo WhatsApp. Vamos entender sua operação.</p>
         </div>
-        <aside className={s.heroSummary} aria-label="O que o GRIDSTOCK conecta">
-          <div className={s.summaryHeader}><span>OPERAÇÃO CONECTADA</span><Icon name="grid" /></div>
-          <h2>Um produto.<br />Todo o caminho.</h2>
-          <div className={s.summaryRoute}>
-            {[['box','01','No estoque','Saldo e endereço de cada item.'],['van','02','Com a equipe','Peças sob responsabilidade do técnico.'],['check','03','No atendimento','Utilização registrada para conferência.']].map(([icon,number,title,text]) => <div key={number}><span className={s.summaryIcon}><Icon name={icon} /></span><div><small>ETAPA {number}</small><h3>{title}</h3><p>{text}</p></div></div>)}
+        <aside className={s.journeyBoard} aria-label="Exemplo de acompanhamento de material">
+          <div className={s.journeyTop}><span><Icon name="arrows" /> CADA MOVIMENTO CONTA</span><span className={s.sampleTag}>Exemplo ilustrativo</span></div>
+          <h2>A peça sai.<br />O controle fica.</h2>
+          <div className={s.journeyItem}><span className={s.journeyBox}><Icon name="box" /></span><div><small>MATERIAL EM MOVIMENTO</small><strong>Conector óptico</strong><span>Base central → Equipe de instalação</span></div></div>
+          <div className={s.journeySteps}>
+            {[['box','12','Retiradas'],['pin','8','Utilizadas'],['reset','4','Devolvidas']].map(([icon,qty,label],index) => <div key={label}><span className={s.journeyNode}><Icon name={icon} /></span><strong>{qty}<small> un.</small></strong><span>{label}</span><small>0{index + 1}</small></div>)}
           </div>
-          <span className={s.summaryFooter}><Icon name="arrows" /> Entradas, retiradas, uso e devoluções.</span>
+          <div className={s.journeyResult}><span><Icon name="check" /></span><div><strong>Do primeiro registro à conferência.</strong><p>Quantidade, responsável e destino no histórico.</p></div></div>
         </aside>
-        <div className={s.heroCapabilities} aria-label="Recursos da plataforma"><span><Icon name="box" /> Múltiplos estoques</span><span><Icon name="users" /> Acessos por perfil</span><span><Icon name="arrows" /> Histórico de movimentações</span></div>
-        <div className={s.heroProduct}>
-          <div className={s.productCaption}><span>CONHEÇA SEU PRÓXIMO ESPAÇO DE TRABALHO</span><a href="#como-funciona">Explore o fluxo <Icon name="arrow" /></a></div>
+        <div className={s.heroCapabilities} aria-label="Recursos da plataforma"><span><Icon name="box" /> Saldo por localização</span><span><Icon name="users" /> Responsável por cada peça</span><span><Icon name="arrows" /> Histórico para conferir</span></div>
+        <div className={s.heroProduct} id="demonstracao">
+          <div className={s.demoIntro}><div><span className={s.eyebrow}>VEJA ANTES DE CONVERSAR</span><h2>Seu próximo jeito<br />de cuidar do estoque.</h2></div><p>Explore a visão geral, a equipe e as movimentações. Os dados são ilustrativos; a rotina é a que você conhece.</p></div>
           <ProductPreview mascot={<Parcel />} />
         </div>
-        <div className={s.audienceStrip}><span>FEITO PARA QUEM COLOCA A OPERAÇÃO EM MOVIMENTO</span><div><span><Icon name="tool" /> Manutenção</span><span><Icon name="route" /> Instalação</span><span><Icon name="users" /> Assistência técnica</span><span><Icon name="box" /> Almoxarifados</span></div></div>
+        <div className={s.audienceStrip}><span>FEITO PARA QUEM COLOCA A OPERAÇÃO EM MOVIMENTO</span><div><span><Icon name="tool" /> Manutenção</span><span><Icon name="route" /> Instalação</span><span><Icon name="users" /> Assistência técnica</span><span><Icon name="box" /> Comércio e estoques</span></div></div>
       </section>
 
-      <section className={`${s.section} ${s.roleSection}`} aria-labelledby="roles-title">
-        <div className={s.sectionHeading}><span className={s.eyebrow}>UMA OPERAÇÃO. DOIS PONTOS DE VISTA.</span><h2 id="roles-title">Clareza para quem organiza.<br />Agilidade para quem executa.</h2><p>Cada perfil encontra as informações e ações da sua rotina.</p></div>
-        <div className={s.roleGrid}>
-          <article className={s.roleCard}><span className={s.roleIcon}><Icon name="grid" /></span><span className={s.eyebrow}>CONTROLE OPERACIONAL</span><h3>Uma visão completa.<br />Sem perder os detalhes.</h3><ul><li><Icon name="check" /> Consulte saldos por base e por técnico.</li><li><Icon name="check" /> Identifique produtos abaixo do mínimo.</li><li><Icon name="check" /> Confira entradas, retiradas e devoluções.</li></ul><Link href="/login" className={s.roleLink}>Já tem acesso? Entrar no operacional <Icon name="arrow" /></Link></article>
-          <article className={s.roleCard}><span className={s.roleIcon}><Icon name="van" /></span><span className={s.eyebrow}>PORTAL DO TÉCNICO</span><h3>Seu material em mãos.<br />Seu registro no celular.</h3><ul><li><Icon name="check" /> Consulte as peças sob sua responsabilidade.</li><li><Icon name="check" /> Registre o uso durante o atendimento.</li><li><Icon name="check" /> Devolva as sobras e mantenha o saldo atualizado.</li></ul><Link href="/tecnico" className={s.roleLink}>Já tem acesso? Entrar como técnico <Icon name="arrow" /></Link></article>
-        </div>
+      <section className={`${s.section} ${s.fitSection}`} id="sua-operacao" aria-labelledby="fit-title">
+        <div className={s.sectionHeading}><span className={s.eyebrow}>FEITO PARA A SUA ROTINA</span><h2 id="fit-title">Seu negócio tem um jeito.<br />Seu sistema acompanha.</h2><p>Selecione o que você precisa organizar e veja como o GRIDSTOCK pode ajudar.</p></div>
+        <OperationFit />
       </section>
 
       <section className={`${s.section} ${s.problemSection}`} id="por-que-gridstock">
-        <Reveal><div className={s.sectionHeading}><span className={s.eyebrow}>PARECE FAMILIAR?</span><h2>A peça saiu da base.<br />O controle foi junto?</h2><p>Entre a prateleira, o carro e o atendimento, é fácil perder o fio da história. O GridStock conecta essas etapas.</p></div></Reveal>
+        <Reveal><div className={s.sectionHeading}><span className={s.eyebrow}>MENOS PROCURA. MAIS CLAREZA.</span><h2>Troque perguntas repetidas<br />por respostas na tela.</h2><p>Informação organizada para decidir a próxima retirada, reposição ou conferência.</p></div></Reveal>
         <div className={s.problemGrid}>
           {[['box', '“Ainda tem na base?”', 'Consulte o saldo e o endereço de cada item, sem depender de uma ida ao almoxarifado.'], ['users', '“Quem ficou com essa peça?”', 'Veja os materiais sob responsabilidade de cada técnico, mesmo depois da retirada.'], ['pin', '“Onde esse material foi usado?”', 'Consulte a utilização registrada, o responsável e o local informado no atendimento.']].map(([icon, title, text], i) => <Reveal key={title} delay={i * 80}><article className={s.problemCard}><span className={s.iconTile}><Icon name={icon} /></span><h3>{title}</h3><p>{text}</p><span className={s.cardIndex}>0{i + 1}</span></article></Reveal>)}
         </div>
@@ -97,7 +95,7 @@ export default function LandingPage() {
       <section className={`${s.section} ${s.startSection}`} id="comecar">
         <Reveal><div className={s.sectionHeading}><span className={s.eyebrow}>SEU PRÓXIMO PASSO</span><h2>Começa com uma conversa.<br />Continua na sua operação.</h2><p>Conte como você trabalha. A gente apresenta o GridStock e combina os próximos passos para o seu acesso.</p></div></Reveal>
         <div className={s.startGrid}>{[['01', 'Chame no WhatsApp', 'Conte sobre a sua empresa, seus almoxarifados e a rotina da equipe.'], ['02', 'Conheça o sistema', 'Converse sobre os recursos, as condições e a configuração para a sua operação.'], ['03', 'Receba seu acesso', 'Com o ambiente liberado, entre com CPF e senha e organize os cadastros da empresa.']].map(([number, title, text]) => <Reveal key={number}><div className={s.startStep}><span>{number}</span><h3>{title}</h3><p>{text}</p></div></Reveal>)}</div>
-        <ContactLink>Solicitar acesso pelo WhatsApp</ContactLink>
+        <ContactLink>Agendar uma demonstração</ContactLink>
       </section>
 
       <section className={`${s.section} ${s.faqSection}`} id="duvidas">
@@ -105,7 +103,7 @@ export default function LandingPage() {
         <div className={s.faqList}>{faqs.map(([question, answer], i) => <details key={question} className={s.faqItem} name="gridstock-faq"><summary><span className={s.faqNumber}>0{i + 1}</span><span>{question}</span><span className={s.faqPlus} aria-hidden="true">+</span></summary><p>{answer}</p></details>)}</div>
       </section>
 
-      <section className={s.finalSection}><Reveal><div className={s.finalCard}><div className={s.finalGrid} aria-hidden="true" /><div className={s.finalCopy}><span className={s.eyebrow}>CADA PEÇA NO SEU RADAR.</span><h2>Seu estoque se movimenta.<br />Seu controle acompanha.</h2><p>Conecte a base e a equipe em campo com o GridStock.</p><ContactLink light>Solicitar acesso pelo WhatsApp</ContactLink><span className={s.finalMicrocopy}>Uma conversa para entender a sua operação.</span></div><div className={s.finalParcel}><span className={s.parcelSpeech}>Tudo no seu lugar. <Icon name="check" /></span><Parcel /></div></div></Reveal></section>
+      <section className={s.finalSection}><Reveal><div className={s.finalCard}><div className={s.finalGrid} aria-hidden="true" /><div className={s.finalCopy}><span className={s.eyebrow}>CADA PEÇA NO SEU RADAR.</span><h2>O próximo movimento<br />é da sua empresa.</h2><p>Veja como organizar seus materiais e acompanhar sua operação com o GRIDSTOCK.</p><ContactLink light>Agendar uma demonstração</ContactLink><span className={s.finalMicrocopy}>Conheça os recursos. Tire suas dúvidas. Avalie com a sua equipe.</span></div><div className={s.finalParcel}><span className={s.parcelSpeech}>Vamos organizar? <Icon name="check" /></span><Parcel /></div></div></Reveal></section>
     </main>
     <footer className={s.footer}><div className={s.footerTop}><div><Link href="/" aria-label="GridStock, início"><Brand /></Link><p>Estoque em movimento.<br />Controle em cada etapa.</p></div><nav aria-label="Navegação do rodapé"><a href="#recursos">Recursos</a><a href="#como-funciona">Como funciona</a><a href="#duvidas">Dúvidas</a><Link href="/login">Entrar no sistema <Icon name="arrow" /></Link></nav></div><div className={s.footerBottom}><span>© {new Date().getFullYear()} GridStock.</span><LegalFooterLinks /></div></footer>
   </div>;
