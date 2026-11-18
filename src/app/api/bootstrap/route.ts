@@ -8,6 +8,11 @@ export const dynamic = 'force-dynamic';
 
 async function handleGET(req: Request) {
   try {
+    // secureRoute resolves the HttpOnly session cookie into this header.
+    // Anonymous visitors do not need a remote database synchronization.
+    if (!req.headers.get('authorization')?.startsWith('Bearer ')) {
+      return NextResponse.json({ error: 'Sessão expirada ou não autenticada.' }, { status: 401 });
+    }
     await pullPlatformFromSupabase();
     const db = databaseForRequest(req);
     await ensureSupabaseSynced(db);

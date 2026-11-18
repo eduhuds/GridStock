@@ -66,7 +66,7 @@ function isNetworkUnavailableError(err: unknown): boolean {
 }
 
 export function getSupabaseAdminClient(): SupabaseClient | null {
-  if (process.env.GRIDSTOCK_DB === ':memory:') return null;
+  if (process.env.GRIDSTOCK_DB === ':memory:' || process.env.GRIDSTOCK_STORAGE_MODE === 'local') return null;
   if (!process.env.SUPABASE_SERVICE_ROLE_KEY && !process.env.SUPABASE_SECRET_KEY) {
     reloadDotEnvIfMissing();
   }
@@ -88,7 +88,7 @@ export function getSupabaseAdminClient(): SupabaseClient | null {
  * Push platform registry (companies, master_account, master_sessions, platform_audit)
  * and one or all company databases to Supabase app_meta.
  */
-export async function pushPlatformToSupabase(companyId?: string): Promise<boolean> {
+export async function pushPlatformToSupabase(companyId?: string, { registryOnly = false }: { registryOnly?: boolean } = {}): Promise<boolean> {
   const sb = getSupabaseAdminClient();
   if (!sb) return false;
   try {
@@ -96,7 +96,7 @@ export async function pushPlatformToSupabase(companyId?: string): Promise<boolea
     const rows: { key: string; value: string }[] = [
       { key: PLATFORM_REGISTRY_KEY, value: JSON.stringify(registryPayload) },
     ];
-    const ids = companyId ? [companyId] : listCompanies().map(c => c.id);
+    const ids = registryOnly ? [] : companyId ? [companyId] : listCompanies().map(c => c.id);
     for (const id of ids) {
       const snap = exportCompanySnapshot(id);
       if (snap) {

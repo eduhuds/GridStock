@@ -6,6 +6,7 @@ import crypto from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
 import { authenticate, createDatabase, ensureSchemaMigrations, getDb, hashPassword, verifyPassword, saveUser, loadState, saveState, getUserFromRequest } from './db';
 import { emptyState, type GridStockState } from './domain';
+import { ensureFinanceSchema } from './platformFinance';
 
 export interface Company {
   id: string; slug: string; name: string; tagline: string;
@@ -13,14 +14,21 @@ export interface Company {
 }
 const cache = globalThis as unknown as { companyDbs?: Map<string, DatabaseSync> };
 cache.companyDbs ??= new Map();
+const preparedRegistries = new WeakSet<DatabaseSync>();
 function registry() {
   const db = getDb();
+  if (!preparedRegistries.has(db)) {
   db.exec(`CREATE TABLE IF NOT EXISTS companies (id TEXT PRIMARY KEY, slug TEXT UNIQUE NOT NULL, name TEXT NOT NULL, tagline TEXT NOT NULL, color TEXT NOT NULL, active INTEGER NOT NULL DEFAULT 1, createdAt INTEGER NOT NULL);
     CREATE TABLE IF NOT EXISTS master_sessions (token TEXT PRIMARY KEY, created_at INTEGER NOT NULL);
     CREATE TABLE IF NOT EXISTS master_account (id INTEGER PRIMARY KEY CHECK(id=1), username TEXT NOT NULL, password_hash TEXT NOT NULL);`);
+  db.exec('CREATE TABLE IF NOT EXISTS platform_admin_accounts (id TEXT PRIMARY KEY, username TEXT UNIQUE NOT NULL, password_hash TEXT NOT NULL)');
+  const sessionColumns = db.prepare('PRAGMA table_info(master_sessions)').all() as { name: string }[];
+  if (!sessionColumns.some(c => c.name === 'admin_id')) db.exec("ALTER TABLE master_sessions ADD COLUMN admin_id TEXT NOT NULL DEFAULT ''");
   const columns = db.prepare('PRAGMA table_info(companies)').all() as { name: string }[];
   if (!columns.some(c => c.name === 'config')) db.exec("ALTER TABLE companies ADD COLUMN config TEXT NOT NULL DEFAULT '{}'");
   db.exec('CREATE TABLE IF NOT EXISTS platform_audit (id INTEGER PRIMARY KEY AUTOINCREMENT, company_id TEXT NOT NULL, company_name TEXT NOT NULL, action TEXT NOT NULL, detail TEXT NOT NULL, ts INTEGER NOT NULL)');
+  preparedRegistries.add(db);
+  }
   if (!db.prepare('SELECT id FROM master_account WHERE id=1').get()) {
     const owner = (
       db.prepare('SELECT username, password_hash FROM users WHERE id = ?').get(process.env.GRIDSTOCK_MASTER_USER_ID || 'u-admin')
@@ -35,7 +43,8 @@ export function listCompanies(): Company[] {
   return (registry().prepare('SELECT * FROM companies ORDER BY createdAt DESC').all() as unknown as (Omit<Company, 'config'> & { config: string })[]).map(c => ({ ...c, active: !!c.active, config: parseCompanyConfig(JSON.parse(c.config)) }));
 }
 export function findCompany(slug: string): Company | undefined {
-  return listCompanies().find(c => c.slug === slug);
+  const row = registry().prepare('SELECT * FROM companies WHERE slug = ?').get(slug) as unknown as (Omit<Company, 'config'> & { config: string }) | undefined;
+  return row ? { ...row, active: !!row.active, config: parseCompanyConfig(JSON.parse(row.config)) } : undefined;
 }
 export function isCompanyDatabase(db: DatabaseSync) {
   return [...cache.companyDbs!.values()].includes(db);
@@ -89,31 +98,52 @@ export function authenticateCompanyFallback(username: unknown, password: unknown
 }
 function masterToken(req: Request) { return (req.headers.get('authorization') || '').replace(/^Bearer /, ''); }
 export function requireMaster(req: Request) {
-  const session = registry().prepare('SELECT created_at FROM master_sessions WHERE token = ?').get(masterToken(req)) as { created_at: number } | undefined;
+  const db = registry();
+  const session = db.prepare('SELECT created_at, admin_id FROM master_sessions WHERE token = ?').get(masterToken(req)) as { created_at: number; admin_id: string } | undefined;
   if (!session || session.created_at + 12 * 60 * 60 * 1000 <= Date.now()) throw new Error('Acesso exclusivo do administrador geral.');
+  if (session.admin_id && !db.prepare('SELECT id FROM platform_admin_accounts WHERE id = ?').get(session.admin_id)) throw new Error('Administrador indisponível.');
+  return session.admin_id || '';
+}
+function administratorAccount(req: Request) {
+  const id = requireMaster(req);
+  const table = id ? 'platform_admin_accounts' : 'master_account';
+  const account = registry().prepare(`SELECT username, password_hash FROM ${table} WHERE id = ?`).get(id || 1) as {username: string; password_hash: string};
+  return { id, table, ...account };
+}
+export function createPlatformAdmin(username: unknown, password: unknown) {
+  const login = String(username || '').trim().toLowerCase();
+  if (!/^[a-z][a-z0-9._-]{2,39}$/.test(login)) throw new Error('Use de 3 a 40 letras, números, ponto, hífen ou sublinhado, começando por letra.');
+  if (String(password || '').length < 10 || String(password).length > 256) throw new Error('Use uma senha de 10 a 256 caracteres.');
+  const db = registry();
+  if (db.prepare('SELECT id FROM master_account WHERE lower(username) = ?').get(login) || db.prepare('SELECT id FROM platform_admin_accounts WHERE username = ?').get(login)) throw new Error('Este usuário já existe.');
+  const id = crypto.randomUUID();
+  db.prepare('INSERT INTO platform_admin_accounts VALUES (?, ?, ?)').run(id, login, hashPassword(String(password)));
+  db.prepare('INSERT INTO platform_audit (company_id, company_name, action, detail, ts) VALUES (?, ?, ?, ?, ?)').run('platform', 'GRIDSTOCK', 'Administrador criado', 'Criado acesso dedicado à plataforma.', Date.now());
+  return { id, username: login };
 }
 export function masterLogin(username: unknown, password: unknown, legacyConversion = false) {
   const db = registry();
-  const account = db.prepare('SELECT * FROM master_account WHERE id=1').get() as { username: string; password_hash: string } | undefined;
-  const loginId = legacyConversion ? String(username ?? '').trim().toLowerCase() : requireCpf(username);
+  const extra = !legacyConversion ? db.prepare('SELECT * FROM platform_admin_accounts WHERE username = ?').get(String(username ?? '').trim().toLowerCase()) as {id:string; username:string; password_hash:string} | undefined : undefined;
+  const account = extra || db.prepare('SELECT * FROM master_account WHERE id=1').get() as { username: string; password_hash: string } | undefined;
+  const loginId = legacyConversion || extra ? String(username ?? '').trim().toLowerCase() : requireCpf(username);
   if (legacyConversion && account && isValidCpf(account.username)) throw new Error('Esta conta já utiliza CPF.');
   if (!account || !verifyPassword(String(password || ''), account.password_hash)) throw new Error('Credenciais inválidas.');
   const storedLower = account.username.trim().toLowerCase();
   if (loginId !== storedLower && normalizeCpf(account.username) !== loginId) throw new Error('Credenciais inválidas.');
   const token = crypto.randomBytes(32).toString('base64url');
   db.prepare('DELETE FROM master_sessions WHERE created_at < ?').run(Date.now() - 12 * 60 * 60 * 1000);
-  db.prepare('INSERT INTO master_sessions VALUES (?, ?)').run(token, Date.now());
+  db.prepare('INSERT INTO master_sessions (token, created_at, admin_id) VALUES (?, ?, ?)').run(token, Date.now(), extra?.id || '');
   return { token };
 }
 export function masterLogout(req: Request) { registry().prepare('DELETE FROM master_sessions WHERE token = ?').run(masterToken(req)); }
 export function changeMasterPassword(req: Request, current: unknown, next: unknown) {
   requireMaster(req);
   const db = registry();
-  const account = db.prepare('SELECT password_hash FROM master_account WHERE id=1').get() as { password_hash: string } | undefined;
+  const account = administratorAccount(req);
   if (!account || !verifyPassword(String(current || ''), account.password_hash)) throw new Error('Senha atual incorreta.');
-  if (String(next || '').trim().length < 10) throw new Error('Use pelo menos 10 caracteres na nova senha.');
-  db.prepare('UPDATE master_account SET password_hash = ? WHERE id=1').run(hashPassword(String(next)));
-  db.prepare('DELETE FROM master_sessions WHERE token != ?').run(masterToken(req));
+  if (String(next || '').trim().length < 10 || String(next).length > 256) throw new Error('Use de 10 a 256 caracteres na nova senha.');
+  db.prepare(`UPDATE ${account.table} SET password_hash = ? WHERE id = ?`).run(hashPassword(String(next)), account.id || 1);
+  db.prepare('DELETE FROM master_sessions WHERE token != ? AND admin_id = ?').run(masterToken(req), account.id);
 }
 export function saveCompany(body: Record<string, unknown>): Company {
   const db = registry();
@@ -176,17 +206,21 @@ export function enforceCompanyAction(req: Request, action: string, body: Record<
 function audit(company: Company, action: string, detail: string) {
   registry().prepare('INSERT INTO platform_audit (company_id, company_name, action, detail, ts) VALUES (?, ?, ?, ?, ?)').run(company.id, company.name, action, detail, Date.now());
 }
-export function platformOverview() {
+export function platformOverview(req?: Request) {
+  const now = Date.now();
   const companies = listCompanies().map(company => {
     const db = companyDb(company);
     return { ...company, usage: {
       users: (db.prepare('SELECT COUNT(*) AS n FROM users').get() as {n:number}).n,
       warehouses: (db.prepare('SELECT COUNT(*) AS n FROM warehouses').get() as {n:number}).n,
       products: (db.prepare('SELECT COUNT(*) AS n FROM products').get() as {n:number}).n,
+      sessions: (db.prepare('SELECT COUNT(*) AS n FROM sessions WHERE expires_at > ?').get(now) as {n:number}).n,
+      movements: (db.prepare('SELECT COUNT(*) AS n FROM movements').get() as {n:number}).n,
+      lastActivityAt: (db.prepare('SELECT MAX(ts) AS ts FROM movements').get() as {ts:number | null}).ts,
     } };
   });
-  const history = registry().prepare('SELECT id, company_name AS companyName, action, ts FROM platform_audit ORDER BY id DESC LIMIT 30').all();
-  const account = registry().prepare('SELECT username FROM master_account WHERE id=1').get() as { username: string } | undefined;
+  const history = registry().prepare('SELECT id, company_id AS companyId, company_name AS companyName, action, detail, ts FROM platform_audit ORDER BY id DESC LIMIT 200').all();
+  const account = req ? administratorAccount(req) : registry().prepare('SELECT username FROM master_account WHERE id=1').get() as { username: string } | undefined;
   return { companies, history, administrator: account ? { username: account.username, role: 'platform_admin' } : null };
 }
 export function revokeCompanySessions(id: string) {
@@ -230,6 +264,8 @@ export function deleteCompany(id: string) {
 export interface PlatformRegistrySnapshot {
   companies: Record<string, unknown>[];
   masterAccount: Record<string, unknown> | null;
+  platformAdmins?: Record<string, unknown>[];
+  financeEntries?: Record<string, unknown>[];
   masterSessions: Record<string, unknown>[];
   platformAudit: Record<string, unknown>[];
 }
@@ -243,7 +279,10 @@ export interface CompanyDbSnapshot {
 
 export function exportPlatformRegistry(): PlatformRegistrySnapshot {
   const db = registry();
+  ensureFinanceSchema();
   return {
+    financeEntries: db.prepare('SELECT * FROM platform_finance').all() as Record<string, unknown>[],
+    platformAdmins: db.prepare('SELECT * FROM platform_admin_accounts').all() as Record<string, unknown>[],
     companies: db.prepare('SELECT * FROM companies ORDER BY createdAt DESC').all() as Record<string, unknown>[],
     masterAccount: (db.prepare('SELECT * FROM master_account WHERE id=1').get() as Record<string, unknown> | undefined) || null,
     masterSessions: db.prepare('SELECT * FROM master_sessions').all() as Record<string, unknown>[],
@@ -254,8 +293,14 @@ export function exportPlatformRegistry(): PlatformRegistrySnapshot {
 export function importPlatformRegistry(snapshot: Partial<PlatformRegistrySnapshot>) {
   if (!snapshot || typeof snapshot !== 'object') return;
   const db = registry();
+  ensureFinanceSchema();
   db.exec('BEGIN IMMEDIATE');
   try {
+    if (Array.isArray(snapshot.financeEntries)) {
+      db.exec('DELETE FROM platform_finance');
+      const insert = db.prepare('INSERT INTO platform_finance VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+      for (const e of snapshot.financeEntries) insert.run(String(e.id), String(e.companyId || ''), String(e.companyName), String(e.kind), String(e.description), Number(e.amountCents), String(e.dueDate), String(e.paidDate || ''), String(e.status), Number(e.createdAt));
+    }
     if (Array.isArray(snapshot.companies)) {
       db.exec('DELETE FROM companies');
       const ins = db.prepare(
@@ -280,11 +325,16 @@ export function importPlatformRegistry(snapshot: Partial<PlatformRegistrySnapsho
         String(snapshot.masterAccount.password_hash)
       );
     }
+    if (Array.isArray(snapshot.platformAdmins)) {
+      db.exec('DELETE FROM platform_admin_accounts');
+      const insert = db.prepare('INSERT INTO platform_admin_accounts (id, username, password_hash) VALUES (?, ?, ?)');
+      for (const admin of snapshot.platformAdmins) insert.run(String(admin.id), String(admin.username), String(admin.password_hash));
+    }
     if (Array.isArray(snapshot.masterSessions)) {
       db.exec('DELETE FROM master_sessions');
-      const insS = db.prepare('INSERT OR REPLACE INTO master_sessions (token, created_at) VALUES (?, ?)');
+      const insS = db.prepare('INSERT OR REPLACE INTO master_sessions (token, created_at, admin_id) VALUES (?, ?, ?)');
       for (const s of snapshot.masterSessions) {
-        insS.run(String(s.token), Number(s.created_at));
+        insS.run(String(s.token), Number(s.created_at), String(s.admin_id || ''));
       }
     }
     if (Array.isArray(snapshot.platformAudit)) {
@@ -386,14 +436,17 @@ export function importCompanySnapshot(companyId: string, snapshot: CompanyDbSnap
 export function updateMasterUsername(req: Request, username: unknown, currentPassword: unknown) {
   requireMaster(req);
   const db = registry();
-  const account = db.prepare('SELECT username, password_hash FROM master_account WHERE id=1').get() as { username: string; password_hash: string } | undefined;
+  const account = administratorAccount(req);
   if (!account || !verifyPassword(String(currentPassword || ''), account.password_hash)) throw new Error('Senha atual incorreta.');
-  const next = requireCpf(username);
-  assertCpfAvailable(next, 'platform', 'master');
+  const next = account.id ? String(username || '').trim().toLowerCase() : requireCpf(username);
+  if (account.id) {
+    if (!/^[a-z][a-z0-9._-]{2,39}$/.test(next)) throw new Error('Use um usuário de 3 a 40 caracteres, começando por letra.');
+    if (db.prepare('SELECT id FROM platform_admin_accounts WHERE username = ? AND id != ?').get(next, account.id) || db.prepare('SELECT id FROM master_account WHERE lower(username) = ?').get(next)) throw new Error('Este usuário já existe.');
+  } else assertCpfAvailable(next, 'platform', 'master');
   db.exec('BEGIN IMMEDIATE');
   try {
-    db.prepare('UPDATE master_account SET username = ? WHERE id=1').run(next);
-    db.prepare('DELETE FROM master_sessions WHERE token != ?').run(masterToken(req));
+    db.prepare(`UPDATE ${account.table} SET username = ? WHERE id = ?`).run(next, account.id || 1);
+    db.prepare('DELETE FROM master_sessions WHERE token != ? AND admin_id = ?').run(masterToken(req), account.id);
     db.prepare('INSERT INTO platform_audit (company_id, company_name, action, detail, ts) VALUES (?, ?, ?, ?, ?)').run('platform', 'GRIDSTOCK', 'Login do administrador atualizado', JSON.stringify({ before: maskCpf(account.username), after: maskCpf(next) }), Date.now());
     db.exec('COMMIT');
   } catch (error) { db.exec('ROLLBACK'); throw error; }

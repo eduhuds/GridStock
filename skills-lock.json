@@ -1,0 +1,11 @@
+{
+  "version": 2,
+  "skills": {
+    "saas-copy-10s": {
+      "source": "lucasximenes30/saas-copy-skill",
+      "sourceType": "github",
+      "skillPath": "skills/saas-copy-10s/SKILL.md",
+      "computedHash": "41c8605ab4363e29fd0acc004b4a9ee30e96dac4d0a90acecfe94614bdaeae27"
+    }
+  }
+}

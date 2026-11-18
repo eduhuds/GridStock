@@ -1,0 +1,4 @@
+interface:
+  display_name: "Copy SaaS · 10 segundos"
+  short_description: "Landing pages claras, persuasivas e sustentadas por provas"
+  default_prompt: "Use $saas-copy-10s para criar a copy da landing page do meu SaaS, com uma proposta clara em 10 segundos."

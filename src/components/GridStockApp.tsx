@@ -1,11 +1,14 @@
 'use client';
 
+import dynamic from 'next/dynamic';
+import { useRouter } from 'next/navigation';
+import BrandLoading from './BrandLoading';
 import { HistoryFilters, SetupChecklist, RequirementDialog, type Requirement } from './OperationalTools';
 import { emptyMovementFilter, matchesMovementFilter } from '@/lib/movementFilters';
-import StockWorkspace from './StockWorkspace';
+const StockWorkspace = dynamic(() => import('./StockWorkspace'), { loading: () => <BrandLoading compact /> });
 import { defaultConfig, type CompanyConfig } from '@/lib/companyConfig';
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useTransition, useMemo } from 'react';
 import {
   GridStockState,
   Part,
@@ -20,15 +23,19 @@ import {
   alerts as calcAlerts,
 } from '@/lib/domain';
 import type { UserAccount, CompanyAuditEntry } from '@/lib/db';
-import DashboardCharts from './DashboardCharts';
+const DashboardCharts = dynamic(() => import('./DashboardCharts'), { loading: () => <BrandLoading compact /> });
 import ThemeToggle from './ThemeToggle';
-import BarcodeScannerModal from './BarcodeScannerModal';
-import RestockOrderModal from './RestockOrderModal';
-import ProductQrModal, { QrCodeSvg } from './ProductQrModal';
+const BarcodeScannerModal = dynamic(() => import('./BarcodeScannerModal'), { loading: () => <BrandLoading compact /> });
+const RestockOrderModal = dynamic(() => import('./RestockOrderModal'), { loading: () => <BrandLoading compact /> });
+const ProductQrModal = dynamic(() => import('./ProductQrModal'));
+const QrCodeSvg = dynamic(() => import('./ProductQrModal').then(m => m.QrCodeSvg));
 import { LegalFooterLinks, openLegalHub } from './LegalAccessibilityHub';
-import TeamAnalyticsPanel from './TeamAnalyticsPanel';
-import { parseXlsxBytes } from '@/lib/xlsx';
+const TeamAnalyticsPanel = dynamic(() => import('./TeamAnalyticsPanel'), { loading: () => <BrandLoading compact /> });
 
+
+const numberFormatter = new Intl.NumberFormat('pt-BR');
+const timeFormatter = new Intl.DateTimeFormat('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Fortaleza' });
+const dateFormatter = new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: '2-digit', timeZone: 'America/Fortaleza' });
 const brlFormatter = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
 
 function compressPhotoFile(file: File): Promise<string> {
@@ -169,6 +176,9 @@ type ModalState =
   | { type: 'profile' };
 
 export default function GridStockApp({ entryRole = 'ops', company }: { entryRole?: 'ops' | 'tech'; company?: { slug: string; name: string; color: string; tagline: string; config: CompanyConfig } }) {
+  const router = useRouter();
+  const [navigating, startNavigation] = useTransition();
+  const [redirecting, setRedirecting] = useState(false);
   const [companyConfig, setCompanyConfig] = useState<CompanyConfig>(company?.config || defaultConfig);
   const companySlug = company?.slug || '';
   const companyBase = companySlug ? `/empresa/${companySlug}` : '';
@@ -401,15 +411,18 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
   );
 
   useEffect(() => {
+    const controller = new AbortController();
     const savedToken = localStorage.getItem(TOKEN_KEY) === 'cookie' ? 'cookie' : '';
     if (!savedToken) localStorage.removeItem(TOKEN_KEY);
     setAuthToken(savedToken);
     fetch('/api/bootstrap', {
+      signal: controller.signal,
       headers: { ...(savedToken ? { Authorization: `Bearer ${savedToken}` } : {}), ...(companySlug ? { 'X-Gridstock-Company': companySlug } : {}) },
     })
       .then(async res => {
         if (res.ok) {
           const data = await res.json();
+          if (controller.signal.aborted) return;
           if (data.user.role === entryRole) applyServerPayload(data);
           else localStorage.removeItem(TOKEN_KEY);
         } else {
@@ -419,11 +432,12 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
         }
       })
       .catch(() => {
-        setCurrentUser(null);
+        if (!controller.signal.aborted) setCurrentUser(null);
       })
       .finally(() => {
-        setBooting(false);
+        if (!controller.signal.aborted) setBooting(false);
       });
+    return () => controller.abort();
   }, [applyServerPayload, entryRole, TOKEN_KEY, companySlug]);
 
   useEffect(() => {
@@ -441,12 +455,15 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
   useEffect(() => {
     if (!authToken || !currentUser) return;
     let active = true;
+    let refreshing = false;
     const refresh = async () => {
-      if (document.visibilityState !== 'visible' || modal) return;
+      if (document.visibilityState !== 'visible' || modal || refreshing) return;
+      refreshing = true;
       try {
         const data = await apiCall('GET', '/api/bootstrap');
         if (active) applyServerPayload(data);
       } catch { /* The next refresh retries temporary connection failures. */ }
+      finally { refreshing = false; }
     };
     const timer = setInterval(refresh, 15000);
     window.addEventListener('focus', refresh);
@@ -466,9 +483,12 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
   }, [currentUser]);
 
   // Helpers
-  const partById = useCallback((id?: string) => state.parts.find(p => p.id === id), [state.parts]);
-  const techById = useCallback((id?: string) => state.technicians.find(t => t.id === id), [state.technicians]);
-  const warehouseById = useCallback((id?: string) => state.warehouses.find(w => w.id === id), [state.warehouses]);
+  const partsById = useMemo(() => new Map(state.parts.map(part => [part.id, part])), [state.parts]);
+  const techniciansById = useMemo(() => new Map(state.technicians.map(tech => [tech.id, tech])), [state.technicians]);
+  const warehousesById = useMemo(() => new Map(state.warehouses.map(warehouse => [warehouse.id, warehouse])), [state.warehouses]);
+  const partById = useCallback((id?: string) => id ? partsById.get(id) : undefined, [partsById]);
+  const techById = useCallback((id?: string) => id ? techniciansById.get(id) : undefined, [techniciansById]);
+  const warehouseById = useCallback((id?: string) => id ? warehousesById.get(id) : undefined, [warehousesById]);
   const isWarehouse = useCallback((id?: string) => Boolean(warehouseById(id)), [warehouseById]);
   const locName = useCallback(
     (id?: string) => warehouseById(id)?.name || techById(id)?.name || '—',
@@ -482,26 +502,16 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
     return techById(techId) || state.technicians[0] || null;
   })();
 
-  const fmtNum = (v: number) => Number(v || 0).toLocaleString('pt-BR');
-  const fmtTime = (ts?: number | null) =>
-    new Date(ts || Date.now()).toLocaleTimeString('pt-BR', {
-      hour: '2-digit',
-      minute: '2-digit',
-      timeZone: 'America/Fortaleza',
-    });
-  const fmtDate = (ts?: number | null) =>
-    new Date(ts || Date.now()).toLocaleDateString('pt-BR', {
-      day: '2-digit',
-      month: '2-digit',
-      timeZone: 'America/Fortaleza',
-    });
+  const fmtNum = (v: number) => numberFormatter.format(Number(v || 0));
+  const fmtTime = (ts?: number | null) => timeFormatter.format(ts || Date.now());
+  const fmtDate = (ts?: number | null) => dateFormatter.format(ts || Date.now());
   const slotLabel = (slot?: SlotAddress | null) =>
     slot ? `Corredor ${slot.corridor} · Prateleira ${slot.shelf}` : 'Sem endereço cadastrado';
 
-  const warehousesTotal = state.warehouses.reduce((acc, w) => acc + calcTotal(state, w.id), 0);
-  const totalAll = Object.keys(state.stock || {}).reduce((acc, l) => acc + calcTotal(state, l), 0);
-  const allAlerts = calcAlerts(state);
-  const warehouseLowAlerts = state.warehouses.flatMap(w =>
+  const warehousesTotal = useMemo(() => state.warehouses.reduce((acc, w) => acc + calcTotal(state, w.id), 0), [state]);
+  const totalAll = useMemo(() => Object.keys(state.stock || {}).reduce((acc, l) => acc + calcTotal(state, l), 0), [state]);
+  const allAlerts = useMemo(() => calcAlerts(state), [state]);
+  const warehouseLowAlerts = useMemo(() => state.warehouses.flatMap(w =>
     state.parts
       .filter(p => {
         const slot = state.locations[w.id]?.[p.id];
@@ -517,7 +527,7 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
         min: p.baseMin > 0 ? p.baseMin : 1,
         slot: state.locations[w.id]?.[p.id],
       }))
-  );
+  ), [state]);
 
   // Open Movement Modal helper
   const openMovementModal = (
@@ -629,10 +639,12 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
   };
 
   const navigate = (p: PageId) => {
-    setPage(p);
-    clearFilters();
     setSidebarOpen(false);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    startNavigation(() => {
+      setPage(p);
+      clearFilters();
+    });
+    window.scrollTo({ top: 0, behavior: 'instant' });
   };
 
   const handleLogin = async (ev: React.FormEvent) => {
@@ -649,7 +661,8 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
         if (data.companySlug && data.companySlug !== companySlug) {
           const companyTokenKey = `${entryRole === 'tech' ? 'gridstock-tech-auth-token' : 'gridstock-auth-token'}:${data.companySlug}`;
           localStorage.setItem(companyTokenKey, data.token);
-          window.location.href = entryRole === 'tech' ? `/empresa/${data.companySlug}/tecnico` : `/empresa/${data.companySlug}`;
+          setRedirecting(true);
+          router.replace(entryRole === 'tech' ? `/empresa/${data.companySlug}/tecnico` : `/empresa/${data.companySlug}`);
           return;
         }
         applyServerPayload(data);
@@ -673,7 +686,8 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
               const adminData = await adminRes.json();
               if (adminData?.token) {
                 localStorage.setItem('gridstock-master-token', adminData.token);
-                window.location.href = '/administracao';
+                setRedirecting(true);
+                router.replace('/administracao');
                 return;
               }
             }
@@ -699,7 +713,7 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
     showToast('Sessão encerrada.');
   };
 
-  const filteredMovements = state.movements.filter(m => {
+  const filteredMovements = useMemo(() => state.movements.filter(m => {
     if (!matchesMovementFilter(m, historyFilter)) return false;
     const activeTid = currentTech?.id || techId;
     if (view !== 'ops' && m.technician !== activeTid) return false;
@@ -729,7 +743,7 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
       if (!hay.includes(query.toLowerCase())) return false;
     }
     return true;
-  });
+  }), [state.movements, historyFilter, currentTech?.id, techId, view, filterKind, filterTech, query, partById, techById, locName]);
 
   const exportCSV = () => {
     const safe = (v: unknown) => {
@@ -786,6 +800,7 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
     setXlsxImporting(true);
     try {
       if (file.size > 10 * 1024 * 1024) throw new Error('Planilha excede 10 MB.');
+      const { parseXlsxBytes } = await import('@/lib/xlsx');
       const matrix = await parseXlsxBytes(await file.arrayBuffer());
       if (matrix.length < 2) {
         throw new Error('A planilha .xlsx está vazia ou não possui linhas de produtos após o cabeçalho.');
@@ -873,43 +888,12 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
     }
   };
 
-  if (booting) {
-    return (
-      <div className="login-shell">
-        <aside className="login-aside">
-          <div className="brand" title={company?.name || 'GRIDSTOCK'}>
-            <img className="brand-mark" src="/gridstock-mark.svg" width={40} height={40} alt="" />
-            <span
-              className={`brand-wordmark ${company ? 'company-wordmark' : ''}`}
-              data-length={
-                company
-                  ? company.name.length > 22
-                    ? 'xl'
-                    : company.name.length > 14
-                    ? 'lg'
-                    : company.name.length > 9
-                    ? 'md'
-                    : 'sm'
-                  : undefined
-              }
-            >
-              {company ? company.name.toUpperCase() : <>GRID<span>STOCK</span><i aria-hidden="true">.</i></>}
-            </span>
-          </div>
-          <div className="login-hero">
-            <span className="eyebrow" style={{ color: 'var(--lime)' }}>CARREGANDO SISTEMA</span>
-            <h1>Conectando ao banco de dados operacional...</h1>
-          </div>
-          <div className="small" style={{ color: '#8da396' }}>GRIDSTOCK · Next.js + TypeScript</div>
-        </aside>
-      </div>
-    );
-  }
+  if (booting || redirecting) return <BrandLoading message={redirecting ? 'Preparando seu espaço de trabalho…' : 'Tudo pronto para colocar o estoque em movimento.'} />;
 
   if (!currentUser) {
     return (
       <>
-        <div className="login-shell">
+        <div className="login-shell refined-login">
           <aside className="login-aside">
             <div className="brand" title={company?.name || 'GRIDSTOCK'}>
               <img className="brand-mark" src="/gridstock-mark.svg" width={40} height={40} alt="" />
@@ -932,7 +916,7 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
             </div>
             <div className="login-hero">
               <span className="eyebrow" style={{ color: 'var(--lime)' }}>{companyConfig.fieldService ? 'OPERAÇÃO E CAMPO EM TEMPO REAL' : 'ESTOQUE ORGANIZADO, OPERAÇÃO CONECTADA'}</span>
-              <h1>Cada peça no lugar.<br /><span>Sua operação<br />em movimento.</span></h1>
+              <h1>O próximo passo <br />da sua operação <br /><span>começa aqui.</span></h1>
               <p>
                 {company?.tagline || (companyConfig.fieldService ? 'Conecte seus estoques à equipe em campo e acompanhe cada peça, da base ao atendimento.' : 'Acompanhe produtos, entradas, saídas e reposição em um só lugar.')}
               </p>
@@ -949,56 +933,28 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
                 <div className="flow-step step-3"><span className="flow-icon"><Icon name="check" /></span><strong>No destino</strong><small>Uso registrado</small></div>
               </div>}
             </div>
-            <svg
-              className="login-rising-wave"
-              viewBox="0 0 800 320"
-              preserveAspectRatio="none"
-              aria-hidden="true"
-            >
-              <defs>
-                <linearGradient id="gsRisingArea" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#d5ef87" stopOpacity="0.22" />
-                  <stop offset="100%" stopColor="#d5ef87" stopOpacity="0.0" />
-                </linearGradient>
-                <linearGradient id="gsRisingStroke" x1="0" y1="1" x2="1" y2="0">
-                  <stop offset="0%" stopColor="#d5ef87" stopOpacity="0.2" />
-                  <stop offset="55%" stopColor="#d5ef87" stopOpacity="0.65" />
-                  <stop offset="100%" stopColor="#d5ef87" stopOpacity="0.95" />
-                </linearGradient>
-              </defs>
-              {/* Camada secundária em contratempo (sobe e desce suave) */}
-              <g className="wave-layer wave-back">
-                <path
-                  className="wave-secondary-line"
-                  d="M -20 290 C 90 245, 150 280, 250 215 C 350 150, 420 210, 530 130 C 640 50, 710 105, 820 35"
-                />
-              </g>
-              {/* Linha principal crescente com picos e vales (movimento pra cima e pra baixo) */}
-              <g className="wave-layer wave-front">
-                <path
-                  className="wave-area-fill"
-                  d="M -20 280 C 80 220, 145 265, 240 190 C 335 115, 415 175, 520 95 C 625 15, 705 70, 820 12 L 820 340 L -20 340 Z"
-                />
-                <path
-                  className="wave-main-line"
-                  d="M -20 280 C 80 220, 145 265, 240 190 C 335 115, 415 175, 520 95 C 625 15, 705 70, 820 12"
-                />
-              </g>
-            </svg>
+            <div className="login-operation-card">
+              <div className="login-operation-top"><Icon name="grid" /><span>SEU ESPAÇO DE TRABALHO</span><Icon name="shield" /></div>
+              <h2>{entryRole === 'tech' ? 'Da sua carga ao atendimento.' : 'Do estoque à próxima entrega.'}</h2>
+              <p>{entryRole === 'tech' ? 'Consulte suas peças e mantenha cada utilização registrada.' : 'Produtos, saldos e movimentações organizados no mesmo lugar.'}</p>
+              <div className="login-operation-row"><span><Icon name="box" /></span><div><strong>{entryRole === 'tech' ? 'Meu estoque pessoal' : 'Seus estoques, conectados'}</strong><small>{entryRole === 'tech' ? 'Saiba quais peças estão com você' : 'Consulte o saldo de cada localização'}</small></div><Icon name="check" /></div>
+              <div className="login-operation-row"><span><Icon name="arrows" /></span><div><strong>Uma história para cada movimento</strong><small>Registros para acompanhar e conferir</small></div><Icon name="check" /></div>
+            </div>
             <div className="small" style={{ color: '#8da396', position: 'relative', zIndex: 1 }}>GRIDSTOCK · Sistema de Gestão de Estoque em Movimento</div>
           </aside>
           <main className="login-main">
+            <a className="login-back" href="/">← Voltar ao site</a>
             <form className="login-card" onSubmit={handleLogin}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                 <div className="login-entry-icon"><Icon name={entryRole === 'tech' ? 'van' : 'grid'} /></div>
                 <ThemeToggle showLabel />
               </div>
               <span className="page-eyebrow">{company ? `BEM-VINDO À ${company.name.toUpperCase()}` : 'BEM-VINDO AO GRIDSTOCK'}</span>
-              <h2>{entryRole === 'tech' ? 'Área do técnico' : 'Controle operacional'}</h2>
-              <p>{entryRole === 'tech' ? 'Consulte suas peças, registre o uso em atendimento e devolva o que sobrar.' : (companyConfig.fieldService ? 'Entre para acompanhar os estoques e a equipe em campo.' : 'Entre para gerenciar os produtos e estoques da sua empresa.')}</p>
-              {companyConfig.fieldService && <nav className="login-role-selector" aria-label="Escolha seu acesso">
-                <a href={companyBase || '/'} aria-current={entryRole !== 'tech' ? 'page' : undefined}><Icon name="grid" /><span>Operacional<small>Estoques e equipe</small></span></a>
-                <a href={`${companyBase}/tecnico`} aria-current={entryRole === 'tech' ? 'page' : undefined}><Icon name="van" /><span>Técnico<small>Peças e atendimentos</small></span></a>
+              <h2>{entryRole === 'tech' ? 'Seu dia em campo.' : 'Sua operação começa aqui.'}</h2>
+              <p>{entryRole === 'tech' ? 'Acesse suas peças e registre os atendimentos com seu CPF e senha.' : (companyConfig.fieldService ? 'Entre para acompanhar os estoques e a equipe em campo.' : 'Entre para gerenciar os produtos e estoques da sua empresa.')}</p>
+              {companyConfig.fieldService && <nav className="login-role-tabs login-role-selector" aria-label="Tipo de acesso">
+                <a href={companyBase || '/login'} aria-current={entryRole === 'ops' ? 'page' : undefined}><Icon name="grid" /><span>Operacional<small>Estoques e equipe</small></span></a>
+                <a href={`${companyBase}/tecnico`} aria-current={entryRole === 'tech' ? 'page' : undefined}><Icon name="van" /><span>Técnico<small>Materiais em campo</small></span></a>
               </nav>}
               {loginError && <div className="error" role="alert">{loginError}</div>}
               {convertingCpf && <div className="field"><p>Abra o link da sua empresa e informe seu login antigo, sua senha atual e seu CPF verdadeiro. Esta conversão é feita uma única vez.</p><label htmlFor="legacy-login">Login anterior</label><input className="input" id="legacy-login" value={legacyLogin} onChange={e => setLegacyLogin(e.target.value)} autoComplete="username" required /></div>}
@@ -1028,18 +984,19 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
                   autoComplete="current-password"
                   required
                 />
-                <button className="password-visibility" type="button" aria-controls="login-pass" aria-pressed={showLoginPassword} onClick={() => setShowLoginPassword(value => !value)}>{showLoginPassword ? 'Ocultar senha' : 'Mostrar senha'}</button>
+                <button className="login-show-password password-visibility" type="button" aria-controls="login-pass" aria-pressed={showLoginPassword} onClick={() => setShowLoginPassword(value => !value)}>{showLoginPassword ? 'Ocultar senha' : 'Mostrar senha'}</button>
               </div>
               <button className="button full" type="submit" disabled={loginLoading}>
                 <Icon name="check" />
                 {loginLoading ? 'Autenticando...' : convertingCpf ? 'Cadastrar CPF e entrar' : 'Entrar no sistema'}
               </button>
               <button type="button" className="text-link" onClick={() => { setConvertingCpf(!convertingCpf); setLoginError(''); }}>{convertingCpf ? 'Já tenho CPF cadastrado' : 'Primeiro acesso por CPF? Converter conta antiga'}</button>
+              <div className="login-access-help"><Icon name="shield" /><p>Precisa de acesso ou esqueceu sua senha?<br /><strong>Fale com o administrador da sua empresa.</strong></p></div>
               <div className="login-hint">
                 {entryRole === 'tech' ? 'Use seu CPF e a senha fornecida pelo administrador.' : (companyConfig.fieldService ? 'Cadastre a equipe e acompanhe as movimentações de cada técnico.' : 'Acesso exclusivo aos dados da sua empresa.')}
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 6, marginTop: 10 }}>
                   {companyConfig.fieldService && (
-                    <a className="text-link" style={{ marginTop: 0 }} href={entryRole === 'tech' ? (companyBase || '/') : `${companyBase}/tecnico`}>
+                    <a className="text-link" style={{ marginTop: 0 }} href={entryRole === 'tech' ? (companyBase || '/login') : `${companyBase}/tecnico`}>
                       <Icon name={entryRole === 'tech' ? 'grid' : 'van'} />
                       {entryRole === 'tech' ? 'Acesso do operacional' : 'Acesso exclusivo do técnico'}
                     </a>
@@ -1417,13 +1374,14 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
               onClick={() => setScannerTarget('quick-withdraw')}
               title="Aponte para o QR Code da peça para enviar ao técnico"
             >
-              <Icon name="qr" />Bipar QR p/ Retirada
+              <Icon name="qr" />Retirar com QR Code
             </button>
             <button className="button" onClick={() => openMovementModal('withdraw')}>
               <Icon name="plus" />Registrar movimentação
             </button>
           </div>
         </div>
+        {renderOpsStats()}
         {renderSetupPanel()}
         <section className="task-shortcuts" aria-label="Atalhos do operacional">
           <div><span className="page-eyebrow">ROTINA OPERACIONAL</span><h2>O que você precisa fazer?</h2><p>Escolha uma ação para continuar.</p></div>
@@ -1431,8 +1389,7 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
           <button onClick={() => openMovementModal('withdraw')}><Icon name="out" /><span><strong>Entregar ao técnico</strong><small>Transferir peças da base ao campo</small></span><Icon name="chevron" /></button>
           <button onClick={() => navigate('movements')}><Icon name="arrows" /><span><strong>Consultar histórico</strong><small>Conferir registros e responsáveis</small></span><Icon name="chevron" /></button>
         </section>
-        {renderOpsStats()}
-        {state.movements.length > 0 && <DashboardCharts state={state} onOpenStock={() => navigate('stock')} />}
+        <DashboardCharts state={state} onOpenStock={() => navigate('stock')} />
         {renderWarehouseLowStockBanner()}
         <div className="grid-main dashboard-locations">
           <section className="panel">
@@ -1600,7 +1557,7 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
                   onClick={() => setScannerTarget('quick-withdraw')}
                   title="Apontar câmera para o QR Code da peça e enviar ao técnico"
                 >
-                  <Icon name="qr" />Bipar QR p/ Retirada
+                  <Icon name="qr" />Retirar com QR Code
                 </button>
                 <button className="button secondary" onClick={() => openMovementModal('entry')}>
                   <Icon name="in" />Entrada de estoque
@@ -1965,7 +1922,7 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
                   onClick={() => setScannerTarget('quick-withdraw')}
                   title="Bipar QR Code da peça para enviar ao técnico"
                 >
-                  <Icon name="qr" />Bipar QR p/ Retirada
+                  <Icon name="qr" />Retirar com QR Code
                 </button>
                 <button
                   className="button secondary"
@@ -5097,7 +5054,8 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
               </div>
             </div>
           </header>
-          <div className="content" id="main-content" tabIndex={-1}>
+          <div className="content" id="main-content" tabIndex={-1} aria-busy={navigating}>
+            {navigating && <div className="navigation-progress" role="status">Abrindo sua próxima tela…</div>}
             <div key={`${view}-${page}`} className="page-transition">
               {ops ? (
                 page === 'overview' ? (
@@ -5131,7 +5089,7 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
       </div>
       {renderModal()}
       {requirement && <RequirementDialog requirement={requirement} close={() => setRequirement(null)} />}
-      <BarcodeScannerModal
+      {scannerTarget !== null && <BarcodeScannerModal
         open={scannerTarget !== null}
         title={
           scannerTarget === 'quick-withdraw'
@@ -5200,8 +5158,8 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
             }
           }
         }}
-      />
-      <ProductQrModal
+      />}
+      {qrModalPartId !== null && <ProductQrModal
         open={qrModalPartId !== null}
         partId={qrModalPartId}
         state={state}
@@ -5213,12 +5171,12 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
             '';
           openMovementModal('withdraw', currentTech?.id || techId, pid, bestWh);
         }}
-      />
-      <RestockOrderModal
+      />}
+      {restockModalOpen && <RestockOrderModal
         open={restockModalOpen}
         state={state}
         onClose={() => setRestockModalOpen(false)}
-      />
+      />}
       <div id="toast" role="status" aria-live="polite" className={toastMsg ? 'show' : ''}>
         {toastMsg}
       </div>
