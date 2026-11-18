@@ -1991,3 +1991,21 @@ html[data-theme="dark"] .overview-dashboard .stat-card.featured .stat-top, html[
   .overview-dashboard .dashboard-ring { width: 150px; height: 150px; }
   .overview-dashboard .dashboard-plot-area > svg, .overview-dashboard .dashboard-axis { height: 180px; }
 }
+
+/* Login motion keeps the form mounted while choosing an access profile. */
+.refined-login .login-role-tabs { position: relative; isolation: isolate; }
+.refined-login .login-role-tabs::before { content: ''; position: absolute; z-index: -1; left: 5px; top: 5px; bottom: 5px; width: calc((100% - 18px) / 2); border-radius: 11px; background: var(--sidebar); transition: transform .28s cubic-bezier(.2,.7,.2,1); }
+.refined-login .login-role-tabs[data-role="tech"]::before { transform: translateX(calc(100% + 8px)); }
+.refined-login .login-role-tabs a[aria-current="page"] { background: transparent; }
+.login-role-heading { animation: loginCopyIn .28s ease both; }
+.refined-login .login-aside { overflow: hidden; }
+.refined-login .login-hero { animation: loginCopyIn .65s ease both; }
+.refined-login .login-operation-card { animation: loginCopyIn .8s .12s ease both; transition: border-color .3s; }
+.refined-login .login-operation-row > span svg { animation: loginIconLift 4s ease-in-out infinite; }
+.refined-login .login-operation-row:nth-of-type(3) > span svg { animation-delay: 1s; }
+.refined-login .login-operation-row > svg { animation: loginCheckIn .6s .7s ease both; }
+@keyframes loginCopyIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes loginIconLift { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-4px); } }
+@keyframes loginCheckIn { from { opacity: 0; transform: scale(.65); } to { opacity: 1; transform: scale(1); } }
+@media (prefers-reduced-motion: reduce) { .refined-login *, .refined-login *::before { animation: none !important; transition: none !important; } }
+html[data-reduce-motion="true"] .refined-login *, html[data-reduce-motion="true"] .refined-login *::before { animation: none !important; transition: none !important; }

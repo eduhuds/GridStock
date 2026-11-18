@@ -175,7 +175,8 @@ type ModalState =
   | { type: 'system' }
   | { type: 'profile' };
 
-export default function GridStockApp({ entryRole = 'ops', company }: { entryRole?: 'ops' | 'tech'; company?: { slug: string; name: string; color: string; tagline: string; config: CompanyConfig } }) {
+export default function GridStockApp({ entryRole: initialEntryRole = 'ops', company }: { entryRole?: 'ops' | 'tech'; company?: { slug: string; name: string; color: string; tagline: string; config: CompanyConfig } }) {
+  const [entryRole, setEntryRole] = useState<'ops' | 'tech'>(initialEntryRole);
   const router = useRouter();
   const [navigating, startNavigation] = useTransition();
   const [redirecting, setRedirecting] = useState(false);
@@ -411,6 +412,8 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
   );
 
   useEffect(() => {
+    // Profile selection is local: restore an existing session only on first load.
+    if (!booting) return;
     const controller = new AbortController();
     const savedToken = localStorage.getItem(TOKEN_KEY) === 'cookie' ? 'cookie' : '';
     if (!savedToken) localStorage.removeItem(TOKEN_KEY);
@@ -893,7 +896,7 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
   if (!currentUser) {
     return (
       <>
-        <div className="login-shell refined-login">
+        <div className="login-shell refined-login" data-entry-role={entryRole}>
           <aside className="login-aside">
             <div className="brand" title={company?.name || 'GRIDSTOCK'}>
               <img className="brand-mark" src="/gridstock-mark.svg" width={40} height={40} alt="" />
@@ -950,11 +953,11 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
                 <ThemeToggle showLabel />
               </div>
               <span className="page-eyebrow">{company ? `BEM-VINDO À ${company.name.toUpperCase()}` : 'BEM-VINDO AO GRIDSTOCK'}</span>
-              <h2>{entryRole === 'tech' ? 'Seu dia em campo.' : 'Sua operação começa aqui.'}</h2>
+              <h2 key={entryRole} className="login-role-heading">{entryRole === 'tech' ? 'Seu dia em campo.' : 'Sua operação começa aqui.'}</h2>
               <p>{entryRole === 'tech' ? 'Acesse suas peças e registre os atendimentos com seu CPF e senha.' : (companyConfig.fieldService ? 'Entre para acompanhar os estoques e a equipe em campo.' : 'Entre para gerenciar os produtos e estoques da sua empresa.')}</p>
-              {companyConfig.fieldService && <nav className="login-role-tabs login-role-selector" aria-label="Tipo de acesso">
-                <a href={companyBase || '/login'} aria-current={entryRole === 'ops' ? 'page' : undefined}><Icon name="grid" /><span>Operacional<small>Estoques e equipe</small></span></a>
-                <a href={`${companyBase}/tecnico`} aria-current={entryRole === 'tech' ? 'page' : undefined}><Icon name="van" /><span>Técnico<small>Materiais em campo</small></span></a>
+              {companyConfig.fieldService && <nav className="login-role-tabs" aria-label="Tipo de acesso" data-role={entryRole}>
+                <a href={companyBase || '/login'} onClick={e => { if (e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return; e.preventDefault(); if (loginLoading) return; setEntryRole('ops'); setLoginError(''); setConvertingCpf(false); }} aria-current={entryRole === 'ops' ? 'page' : undefined}><Icon name="grid" /><span>Operacional<small>Estoques e equipe</small></span></a>
+                <a href={`${companyBase}/tecnico`} onClick={e => { if (e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return; e.preventDefault(); if (loginLoading) return; setEntryRole('tech'); setLoginError(''); setConvertingCpf(false); }} aria-current={entryRole === 'tech' ? 'page' : undefined}><Icon name="van" /><span>Técnico<small>Materiais em campo</small></span></a>
               </nav>}
               {loginError && <div className="error" role="alert">{loginError}</div>}
               {convertingCpf && <div className="field"><p>Abra o link da sua empresa e informe seu login antigo, sua senha atual e seu CPF verdadeiro. Esta conversão é feita uma única vez.</p><label htmlFor="legacy-login">Login anterior</label><input className="input" id="legacy-login" value={legacyLogin} onChange={e => setLegacyLogin(e.target.value)} autoComplete="username" required /></div>}
@@ -996,7 +999,7 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
                 {entryRole === 'tech' ? 'Use seu CPF e a senha fornecida pelo administrador.' : (companyConfig.fieldService ? 'Cadastre a equipe e acompanhe as movimentações de cada técnico.' : 'Acesso exclusivo aos dados da sua empresa.')}
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 6, marginTop: 10 }}>
                   {companyConfig.fieldService && (
-                    <a className="text-link" style={{ marginTop: 0 }} href={entryRole === 'tech' ? (companyBase || '/login') : `${companyBase}/tecnico`}>
+                    <a className="text-link" style={{ marginTop: 0 }} onClick={e => { if (e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return; e.preventDefault(); if (loginLoading) return; setEntryRole(entryRole === 'tech' ? 'ops' : 'tech'); setLoginError(''); setConvertingCpf(false); }} href={entryRole === 'tech' ? (companyBase || '/login') : `${companyBase}/tecnico`}>
                       <Icon name={entryRole === 'tech' ? 'grid' : 'van'} />
                       {entryRole === 'tech' ? 'Acesso do operacional' : 'Acesso exclusivo do técnico'}
                     </a>
