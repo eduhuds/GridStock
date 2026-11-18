@@ -16,6 +16,7 @@ async function handlePOST(req: Request) {
     if (!user) return NextResponse.json({ error: 'Não autenticado.' }, { status: 401 });
     if (user.role !== 'ops') return NextResponse.json({ error: 'Acesso restrito ao Controle Operacional.' }, { status: 403 });
 
+    if (req.headers.has('x-gridstock-company')) return NextResponse.json({ error: 'A redefinição de empresas é exclusiva da Central de Administração.' }, { status: 403 });
     const body = await req.json();
     if (!['seed', 'empty'].includes(body.mode)) return NextResponse.json({ error: 'Modo inválido.' }, { status: 400 });
     enforceCompanyAction(req, 'reset', body);

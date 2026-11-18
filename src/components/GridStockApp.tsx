@@ -1,5 +1,7 @@
 'use client';
 
+import { HistoryFilters, SetupChecklist, RequirementDialog, type Requirement } from './OperationalTools';
+import { emptyMovementFilter, matchesMovementFilter } from '@/lib/movementFilters';
 import StockWorkspace from './StockWorkspace';
 import { defaultConfig, type CompanyConfig } from '@/lib/companyConfig';
 
@@ -164,8 +166,7 @@ type ModalState =
   | { type: 'tech'; techId?: string }
   | { type: 'transfer'; fromId: string; toId: string; partId: string }
   | { type: 'system' }
-  | { type: 'profile' }
-  | { type: 'reset'; mode: 'seed' | 'empty' };
+  | { type: 'profile' };
 
 export default function GridStockApp({ entryRole = 'ops', company }: { entryRole?: 'ops' | 'tech'; company?: { slug: string; name: string; color: string; tagline: string; config: CompanyConfig } }) {
   const [companyConfig, setCompanyConfig] = useState<CompanyConfig>(company?.config || defaultConfig);
@@ -192,6 +193,8 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
   const [sidebarOpen, setSidebarOpen] = useState<boolean>(false);
 
   const [query, setQuery] = useState<string>('');
+  const [historyFilter, setHistoryFilter] = useState({...emptyMovementFilter});
+  const [requirement, setRequirement] = useState<Requirement | null>(null);
   const [filterKind, setFilterKind] = useState<string>('');
   const [filterTech, setFilterTech] = useState<string>('');
   const [filterLoc, setFilterLoc] = useState<string>('');
@@ -208,6 +211,7 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
   const [legacyLogin, setLegacyLogin] = useState('');
   const [loginUser, setLoginUser] = useState<string>('');
   const [loginPass, setLoginPass] = useState<string>('');
+  const [showLoginPassword, setShowLoginPassword] = useState(false);
   const [loginError, setLoginError] = useState<string>('');
   const [loginLoading, setLoginLoading] = useState<boolean>(false);
 
@@ -324,6 +328,7 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
   const clearFilters = useCallback(() => {
     setQuery('');
     setFilterKind('');
+    setHistoryFilter({...emptyMovementFilter});
     setFilterTech('');
     setFilterLoc('');
     setFilterCategory('');
@@ -526,19 +531,22 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
       openTransferModal(defaultWid, '', pid);
       return;
     }
+    if (!state.warehouses.length && view === 'ops') {
+      setRequirement({ message:'Para registrar uma movimentação, cadastre primeiro o estoque onde os produtos ficarão armazenados.', label:'Cadastrar estoque', action:() => openWarehouseModal() });
+      return;
+    }
     if (!state.parts.length) {
-      showToast('Cadastre pelo menos um produto antes de registrar movimentações.');
-      if (view === 'ops') openProductModal();
+      if (view === 'ops') setRequirement({ message:'Seu estoque já está cadastrado. Agora cadastre pelo menos um produto antes de registrar uma movimentação.', label:'Cadastrar produto', action:() => openProductModal() });
+      else showToast('Solicite ao responsável o cadastro dos produtos antes de movimentar peças.');
       return;
     }
     if (!['entry', 'stockout'].includes(kind) && !state.technicians.length) {
-      showToast('Cadastre pelo menos um técnico para movimentar peças de campo.');
-      if (view === 'ops') openTechModal();
+      if (view === 'ops') setRequirement({ message:'Esta operação movimenta peças da equipe em campo e precisa de um técnico cadastrado. Para abastecer somente a base, use Entrada de estoque.', label:'Cadastrar técnico', action:() => openTechModal() });
+      else showToast('Solicite ao responsável o vínculo com um técnico.');
       return;
     }
     if (['withdraw', 'return', 'entry', 'stockout'].includes(kind) && !state.warehouses.length) {
-      showToast('Cadastre pelo menos um estoque antes de realizar esta operação.');
-      if (view === 'ops') openWarehouseModal();
+      showToast('Solicite ao responsável o cadastro de um estoque para esta operação.');
       return;
     }
     const resolvedTech = view === 'tech' && currentTech ? currentTech : techById(tid) || state.technicians[0];
@@ -576,8 +584,7 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
 
   const openProductModal = (pid?: string) => {
     if (!state.warehouses.length) {
-      showToast('Cadastre primeiro um estoque para endereçar o produto.');
-      openWarehouseModal();
+      setRequirement({ message:'O produto precisa de um estoque para definir seu endereço e saldo. Cadastre esse estoque primeiro.', label:'Cadastrar estoque', action:() => openWarehouseModal() });
       return;
     }
     const defaultWid =
@@ -603,8 +610,7 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
   const openTransferModal = (from = '', to = '', pid = '') => {
     if (!companyConfig.transfers) { showToast('Transferências desabilitadas para esta empresa.'); return; }
     if (state.warehouses.length < 2) {
-      showToast('Cadastre pelo menos 2 estoques para realizar transferências entre bases.');
-      openWarehouseModal();
+      setRequirement({ message:'Uma transferência precisa de dois estoques: origem e destino. Cadastre o estoque que falta para continuar.', label:'Cadastrar estoque', action:() => openWarehouseModal() });
       return;
     }
     const validFrom = isWarehouse(from) ? from : state.warehouses[0].id;
@@ -694,6 +700,7 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
   };
 
   const filteredMovements = state.movements.filter(m => {
+    if (!matchesMovementFilter(m, historyFilter)) return false;
     const activeTid = currentTech?.id || techId;
     if (view !== 'ops' && m.technician !== activeTid) return false;
     if (filterKind && m.kind !== filterKind) return false;
@@ -929,6 +936,11 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
               <p>
                 {company?.tagline || (companyConfig.fieldService ? 'Conecte seus estoques à equipe em campo e acompanhe cada peça, da base ao atendimento.' : 'Acompanhe produtos, entradas, saídas e reposição em um só lugar.')}
               </p>
+              <div className="login-benefits" aria-label="O que você pode fazer">
+                <div><Icon name="box" /><span><strong>Saiba onde está cada produto</strong><small>Consulte saldos e organize seus estoques.</small></span></div>
+                <div><Icon name="arrows" /><span><strong>Acompanhe cada movimentação</strong><small>Entradas e saídas com histórico de registros.</small></span></div>
+                <div><Icon name={companyConfig.fieldService ? 'users' : 'shield'} /><span><strong>{companyConfig.fieldService ? 'Conecte a base ao campo' : 'Organize o acesso da equipe'}</strong><small>{companyConfig.fieldService ? 'Retiradas, uso e devoluções no mesmo fluxo.' : 'Cada pessoa com seu perfil de acesso.'}</small></span></div>
+              </div>
               {companyConfig.fieldService && <div className="login-flow" aria-label="Fluxo de estoque da base ao atendimento">
                 <div className="flow-step step-1"><span className="flow-icon"><Icon name="box" /></span><strong>Na base</strong><small>Estoque organizado</small></div>
                 <Icon name="arrow" />
@@ -983,7 +995,11 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
               </div>
               <span className="page-eyebrow">{company ? `BEM-VINDO À ${company.name.toUpperCase()}` : 'BEM-VINDO AO GRIDSTOCK'}</span>
               <h2>{entryRole === 'tech' ? 'Área do técnico' : 'Controle operacional'}</h2>
-              <p>{entryRole === 'tech' ? 'Entre para informar seu estoque pessoal e as peças que levará hoje.' : (companyConfig.fieldService ? 'Entre para acompanhar os estoques e a equipe em campo.' : 'Entre para gerenciar os produtos e estoques da sua empresa.')}</p>
+              <p>{entryRole === 'tech' ? 'Consulte suas peças, registre o uso em atendimento e devolva o que sobrar.' : (companyConfig.fieldService ? 'Entre para acompanhar os estoques e a equipe em campo.' : 'Entre para gerenciar os produtos e estoques da sua empresa.')}</p>
+              {companyConfig.fieldService && <nav className="login-role-selector" aria-label="Escolha seu acesso">
+                <a href={companyBase || '/'} aria-current={entryRole !== 'tech' ? 'page' : undefined}><Icon name="grid" /><span>Operacional<small>Estoques e equipe</small></span></a>
+                <a href={`${companyBase}/tecnico`} aria-current={entryRole === 'tech' ? 'page' : undefined}><Icon name="van" /><span>Técnico<small>Peças e atendimentos</small></span></a>
+              </nav>}
               {loginError && <div className="error" role="alert">{loginError}</div>}
               {convertingCpf && <div className="field"><p>Abra o link da sua empresa e informe seu login antigo, sua senha atual e seu CPF verdadeiro. Esta conversão é feita uma única vez.</p><label htmlFor="legacy-login">Login anterior</label><input className="input" id="legacy-login" value={legacyLogin} onChange={e => setLegacyLogin(e.target.value)} autoComplete="username" required /></div>}
               <div className="field">
@@ -1005,13 +1021,14 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
                   className="input"
                   id="login-pass"
                   name="password"
-                  type="password"
+                  type={showLoginPassword ? 'text' : 'password'}
                   value={loginPass}
                   onChange={e => setLoginPass(e.target.value)}
                   placeholder="Sua senha de acesso"
                   autoComplete="current-password"
                   required
                 />
+                <button className="password-visibility" type="button" aria-controls="login-pass" aria-pressed={showLoginPassword} onClick={() => setShowLoginPassword(value => !value)}>{showLoginPassword ? 'Ocultar senha' : 'Mostrar senha'}</button>
               </div>
               <button className="button full" type="submit" disabled={loginLoading}>
                 <Icon name="check" />
@@ -1372,66 +1389,7 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
     );
   };
 
-  const renderSetupPanel = () => {
-    const hasW = state.warehouses.length > 0;
-    const hasP = state.parts.length > 0;
-    const hasT = state.technicians.length > 0;
-    if (hasW && hasP && hasT) return null;
-    return (
-      <section className="setup-panel">
-        <div className="setup-head">
-          <div>
-            <h2>Configuração da Operação</h2>
-            <p>Cadastre os estoques, produtos e a equipe da sua operação abaixo.</p>
-          </div>
-          <button hidden={!!company} className="button secondary" onClick={() => setModal({ type: 'reset', mode: 'seed' })}>
-            <Icon name="box" />Carregar base de exemplo
-          </button>
-        </div>
-        <div className="setup-grid">
-          <div className={`setup-step ${hasW ? 'done' : ''}`}>
-            <div>
-              <div className="setup-step-top">
-                <span>PASSO 1</span>
-                {hasW ? <Badge label={`${state.warehouses.length} cadastrado(s)`} color="green" /> : <Badge label="Pendente" color="amber" />}
-              </div>
-              <h3>Estoques / Almoxarifados</h3>
-              <p>Cadastre suas bases físicas com código, cidade, endereço e responsável.</p>
-            </div>
-            <button className={`button ${hasW ? 'secondary' : ''}`} onClick={() => openWarehouseModal()}>
-              <Icon name="plus" />Cadastrar estoque
-            </button>
-          </div>
-          <div className={`setup-step ${hasP ? 'done' : ''}`}>
-            <div>
-              <div className="setup-step-top">
-                <span>PASSO 2</span>
-                {hasP ? <Badge label={`${state.parts.length} cadastrado(s)`} color="green" /> : <Badge label="Pendente" color="amber" />}
-              </div>
-              <h3>Catálogo de Produtos</h3>
-              <p>Registre SKUs únicos, estoque mínimo, saldo inicial, corredor e prateleira.</p>
-            </div>
-            <button className={`button ${hasP ? 'secondary' : ''}`} onClick={() => openProductModal()}>
-              <Icon name="plus" />Cadastrar produto
-            </button>
-          </div>
-          <div className={`setup-step ${hasT ? 'done' : ''}`}>
-            <div>
-              <div className="setup-step-top">
-                <span>PASSO 3</span>
-                {hasT ? <Badge label={`${state.technicians.length} cadastrado(s)`} color="green" /> : <Badge label="Pendente" color="amber" />}
-              </div>
-              <h3>Equipe em Campo</h3>
-              <p>Cadastre seus técnicos, veículos, regiões de atendimento e credenciais de acesso.</p>
-            </div>
-            <button className={`button ${hasT ? 'secondary' : ''}`} onClick={() => openTechModal()}>
-              <Icon name="plus" />Cadastrar técnico
-            </button>
-          </div>
-        </div>
-      </section>
-    );
-  };
+  const renderSetupPanel = () => <SetupChecklist state={state} warehouse={() => openWarehouseModal()} product={() => openProductModal()} entry={() => openMovementModal('entry')} />;
 
   const renderOverview = () => {
     const whPct = totalAll > 0 ? Math.round((warehousesTotal / totalAll) * 100) : 0;
@@ -1466,9 +1424,15 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
             </button>
           </div>
         </div>
-        {renderOpsStats()}
-        <DashboardCharts state={state} onOpenStock={() => navigate('stock')} />
         {renderSetupPanel()}
+        <section className="task-shortcuts" aria-label="Atalhos do operacional">
+          <div><span className="page-eyebrow">ROTINA OPERACIONAL</span><h2>O que você precisa fazer?</h2><p>Escolha uma ação para continuar.</p></div>
+          <button onClick={() => openMovementModal('entry')}><Icon name="in" /><span><strong>Receber produtos</strong><small>Registrar entrada no estoque</small></span><Icon name="chevron" /></button>
+          <button onClick={() => openMovementModal('withdraw')}><Icon name="out" /><span><strong>Entregar ao técnico</strong><small>Transferir peças da base ao campo</small></span><Icon name="chevron" /></button>
+          <button onClick={() => navigate('movements')}><Icon name="arrows" /><span><strong>Consultar histórico</strong><small>Conferir registros e responsáveis</small></span><Icon name="chevron" /></button>
+        </section>
+        {renderOpsStats()}
+        {state.movements.length > 0 && <DashboardCharts state={state} onOpenStock={() => navigate('stock')} />}
         {renderWarehouseLowStockBanner()}
         <div className="grid-main dashboard-locations">
           <section className="panel">
@@ -2267,6 +2231,8 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
             </select>
           )}
         </div>
+        <HistoryFilters value={historyFilter} onChange={value => { setHistoryFilter(value); setMovementsPage(1); }} state={state} />
+        <button className="text-link operation-clear" onClick={clearFilters}>Limpar todos os filtros</button>
         {renderMovementTable(pagedMovements)}
         <div className="table-footer" style={{ flexWrap: 'wrap', gap: 10 }}>
           <span>
@@ -2311,7 +2277,7 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
         </div>
         <div className="heading-actions">
           <button className="button" onClick={() => openTechModal()}>
-            <Icon name="plus" />Cadastrar técnico e saída
+            <Icon name="plus" />Cadastrar técnico
           </button>
         </div>
       </div>
@@ -2767,6 +2733,11 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
             )}
           </div>
         </div>
+        <section className="journey-guide" aria-label="Como registrar seu dia">
+          <div><span>01 · ANTES DE SAIR</span><h2>Confira suas peças</h2><p>Consulte seu saldo. Para buscar peças na base, registre uma retirada.</p><button className="text-link" onClick={() => navigate('stock')}>Conferir meu estoque →</button></div>
+          <div><span>02 · NO ATENDIMENTO</span><h2>Registre o que usou</h2><p>Informe as peças aplicadas na ordem de serviço para atualizar seu saldo.</p><button className="text-link" onClick={() => openMovementModal('use', currentTech.id)}>Registrar utilização →</button></div>
+          <div><span>03 · AO RETORNAR</span><h2>Devolva à base</h2><p>Registre somente as peças que você está entregando de volta ao estoque.</p><button className="text-link" onClick={() => openMovementModal('return', currentTech.id)}>Registrar devolução →</button></div>
+        </section>
         {renderTechStats()}
         {renderDailyDepartures(currentTech.id)}
         <div className="grid-main">
@@ -2837,7 +2808,7 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
                 <span className="quick-icon"><Icon name="edit" /></span>
                 <div>
                   <strong>Informar estoque pessoal</strong>
-                  <small>Informe o total de peças que já possui</small>
+                  <small>Conferência: informe o saldo total, não uma entrada</small>
                 </div>
                 <Icon name="chevron" />
               </button>
@@ -4348,8 +4319,8 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
           <section className="modal wide" role="dialog" aria-modal="true">
             <div className="modal-header">
               <div>
-                <h2>Acessos e Banco de Dados</h2>
-                <p>Gerencie contas de usuários (Operação e Técnicos) e os dados do servidor.</p>
+                <h2>Usuários e acessos</h2>
+                <p>Gerencie as contas e os acessos da equipe da sua empresa.</p>
               </div>
               <button className="modal-close" type="button" onClick={() => setModal(null)} aria-label="Fechar janela">
                 <Icon name="close" />
@@ -4510,28 +4481,6 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
                 )}
                 <button type="submit" className="button"><Icon name="plus" />Salvar usuário</button>
               </form>
-              <div className="form-section-label"><Icon name="box" />MANUTENÇÃO DO BANCO DE DADOS (MODO DE TESTES)</div>
-              <div className="guide-summary" style={{ marginBottom: 12 }}>
-                Você pode zerar o banco de dados para iniciar completamente limpo durante seus testes, ou carregar os dados de exemplo.
-              </div>
-              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-                {(!company || companyConfig.fieldService) && (
-                  <button
-                    type="button"
-                    className="button secondary"
-                    onClick={() => { setFormError(''); setModal({ type: 'reset', mode: 'seed' }); }}
-                  >
-                    <Icon name="box" />Carregar dados de exemplo
-                  </button>
-                )}
-                <button
-                  type="button"
-                  className="button danger"
-                  onClick={() => { setFormError(''); setModal({ type: 'reset', mode: 'empty' }); }}
-                >
-                  <Icon name="reset" />Zerar banco de dados (iniciar limpo)
-                </button>
-              </div>
             </div>
             <div className="modal-footer">
               <button className="button secondary" onClick={() => setModal(null)}>Fechar</button>
@@ -4680,7 +4629,7 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
                         setModal({ type: 'system' });
                       }}
                     >
-                      <Icon name="users" /> Acessos e Banco
+                      <Icon name="users" /> Usuários e acessos
                     </button>
                   </div>
                 )}
@@ -4711,70 +4660,13 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
       );
     }
 
-    if (modal.type === 'reset') {
-      const isSeed = modal.mode === 'seed';
-      return (
-        <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setModal(null)}>
-          <section className="modal" role="dialog" aria-modal="true">
-            <div className="modal-header">
-              <div>
-                <h2>{isSeed ? 'Carregar dados de exemplo?' : 'Zerar banco de dados?'}</h2>
-                <p>
-                  {isSeed
-                    ? 'Preenche o banco SQLite com estoques, produtos, técnicos e movimentações de demonstração.'
-                    : 'Remove todos os estoques, produtos, técnicos e movimentações para começar do zero.'}
-                </p>
-              </div>
-              <button className="modal-close" type="button" onClick={() => setModal(null)} aria-label="Fechar janela">
-                <Icon name="close" />
-              </button>
-            </div>
-            <div className="modal-body">
-              {formError && <div className="error" role="alert">{formError}</div>}
-              <p className="small muted" style={{ lineHeight: 1.8 }}>
-                {isSeed
-                  ? 'Os cadastros atuais serão substituídos pela base de exemplo (2 estoques, 8 produtos e 6 técnicos, com logins criados automaticamente conforme a senha padrão configurada no ambiente).'
-                  : 'Todos os cadastros de estoques, produtos, técnicos e histórico serão apagados do banco de dados SQLite. Sua conta de Controle Operacional será mantida.'}
-              </p>
-            </div>
-            <div className="modal-footer">
-              <button className="button secondary" onClick={() => setModal(null)}>Cancelar</button>
-              <button
-                className={`button ${isSeed ? '' : 'danger'}`}
-                onClick={async () => {
-                  setFormError('');
-                  try {
-                    const res = await apiCall('POST', '/api/system/reset', { mode: modal.mode });
-                    applyServerPayload(res);
-                    clearFilters();
-                    setModal(null);
-                    setPage('overview');
-                    showToast(
-                      isSeed
-                        ? 'Dados de exemplo carregados no banco de dados.'
-                        : 'Banco de dados zerado. Pronto para seus cadastros reais.'
-                    );
-                  } catch (err) {
-                    setFormError(err instanceof Error ? err.message : 'Erro ao redefinir banco.');
-                  }
-                }}
-              >
-                <Icon name={isSeed ? 'check' : 'reset'} />
-                {isSeed ? 'Carregar base de exemplo' : 'Confirmar limpeza total'}
-              </button>
-            </div>
-          </section>
-        </div>
-      );
-    }
-
     return null;
   };
 
   return (
     <>
       <a className="skip-link" href="#main-content">Ir para o conteúdo</a>
-      <div className="app-shell">
+      <div className="app-shell report-shell">
         {sidebarOpen && <button className="sidebar-backdrop" aria-label="Fechar navegação" onClick={() => setSidebarOpen(false)} />}
         <aside className={`sidebar ${sidebarOpen ? 'open' : ''}`} id="sidebar" aria-label="Menu principal">
           <button className="sidebar-close icon-button" aria-label="Fechar menu" onClick={() => setSidebarOpen(false)}><Icon name="close" /></button>
@@ -4894,7 +4786,7 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
             <strong>{isOpsUser ? (company ? 'Administração da empresa' : 'Administração e acessos') : 'Operação rastreada'}</strong>
             <p>
               {isOpsUser
-                ? 'Gerencie usuários, trilha de auditoria e manutenção do banco de dados.'
+                ? 'Gerencie usuários, acessos e a trilha de auditoria da sua empresa.'
                 : 'Registre chegadas, aplicações em OS e devoluções em tempo real.'}
             </p>
             {isOpsUser ? (
@@ -4903,14 +4795,9 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
                   Trilha de auditoria <Icon name="arrow" />
                 </button>
                 <button onClick={() => { setFormError(''); setConfirmDeleteUser(null); setModal({ type: 'system' }); }}>
-                  Acessos e banco de dados <Icon name="arrow" />
+                  Usuários e acessos <Icon name="arrow" />
                 </button>
-                <button
-                  onClick={() => { setFormError(''); setModal({ type: 'reset', mode: 'empty' }); }}
-                  style={{ background: 'rgba(180, 35, 24, 0.25)', borderColor: 'rgba(248, 113, 113, 0.4)', color: '#fecaca' }}
-                >
-                  Zerar banco (teste) <Icon name="reset" />
-                </button>
+
               </div>
             ) : (
               <button onClick={handleLogout}>
@@ -5010,7 +4897,7 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
                 <button
                   className="icon-button"
                   onClick={() => { setFormError(''); setConfirmDeleteUser(null); setModal({ type: 'system' }); }}
-                  title="Acessos e banco de dados"
+                  title="Usuários e acessos"
                   aria-label="Configurações do sistema"
                 >
                   <Icon name="users" />
@@ -5243,6 +5130,7 @@ export default function GridStockApp({ entryRole = 'ops', company }: { entryRole
         </main>
       </div>
       {renderModal()}
+      {requirement && <RequirementDialog requirement={requirement} close={() => setRequirement(null)} />}
       <BarcodeScannerModal
         open={scannerTarget !== null}
         title={

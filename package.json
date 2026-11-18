@@ -7,7 +7,7 @@
     "dev": "rm -f .next/dev/lock && next dev --webpack",
     "build": "next build",
     "start": "next start -p 8080",
-    "test": "node --test tests/domain.test.cjs tests/server.test.cjs tests/dashboard.test.cjs tests/companies.test.cjs tests/security.test.cjs"
+    "test": "node --test tests/domain.test.cjs tests/server.test.cjs tests/dashboard.test.cjs tests/companies.test.cjs tests/security.test.cjs tests/movementFilters.test.cjs"
   },
   "keywords": [
     "nextjs",
