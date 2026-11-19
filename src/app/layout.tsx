@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from 'next';
 import './globals.css';
+import './workspace-refinements.css';
 import LegalAccessibilityHub from '@/components/LegalAccessibilityHub';
 
 export const metadata: Metadata = {

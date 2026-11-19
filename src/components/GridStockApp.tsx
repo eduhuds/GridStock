@@ -5,6 +5,8 @@ import { useRouter } from 'next/navigation';
 import BrandLoading from './BrandLoading';
 import { HistoryFilters, SetupChecklist, RequirementDialog, type Requirement } from './OperationalTools';
 import { emptyMovementFilter, matchesMovementFilter } from '@/lib/movementFilters';
+import { movementPreview } from '@/lib/movementPreview';
+import { useDialogFocus } from './useDialogFocus';
 const StockWorkspace = dynamic(() => import('./StockWorkspace'), { loading: () => <BrandLoading compact /> });
 import { defaultConfig, type CompanyConfig } from '@/lib/companyConfig';
 
@@ -176,6 +178,7 @@ type ModalState =
   | { type: 'profile' };
 
 export default function GridStockApp({ entryRole: initialEntryRole = 'ops', company }: { entryRole?: 'ops' | 'tech'; company?: { slug: string; name: string; color: string; tagline: string; config: CompanyConfig } }) {
+  useDialogFocus();
   const [entryRole, setEntryRole] = useState<'ops' | 'tech'>(initialEntryRole);
   const router = useRouter();
   const [navigating, startNavigation] = useTransition();
@@ -309,7 +312,7 @@ export default function GridStockApp({ entryRole: initialEntryRole = 'ops', comp
               .filter(Boolean)
               .join(' - ');
             if (formatted) {
-              setMoveSite(formatted.slice(0, 130));
+              setMoveSite(previous => previous.trim() ? previous : formatted.slice(0, 130));
               return;
             }
           }
@@ -514,20 +517,21 @@ export default function GridStockApp({ entryRole: initialEntryRole = 'ops', comp
   const warehousesTotal = useMemo(() => state.warehouses.reduce((acc, w) => acc + calcTotal(state, w.id), 0), [state]);
   const totalAll = useMemo(() => Object.keys(state.stock || {}).reduce((acc, l) => acc + calcTotal(state, l), 0), [state]);
   const allAlerts = useMemo(() => calcAlerts(state), [state]);
+  const technicianAlerts = allAlerts.filter(alert => techniciansById.has(alert.loc));
   const warehouseLowAlerts = useMemo(() => state.warehouses.flatMap(w =>
     state.parts
       .filter(p => {
         const slot = state.locations[w.id]?.[p.id];
         if (!slot) return false;
         const qty = state.stock[w.id]?.[p.id] ?? 0;
-        const min = p.baseMin > 0 ? p.baseMin : 1;
+        const min = p.baseMin;
         return qty < min;
       })
       .map(p => ({
         warehouse: w,
         part: p,
         qty: state.stock[w.id]?.[p.id] ?? 0,
-        min: p.baseMin > 0 ? p.baseMin : 1,
+        min: p.baseMin,
         slot: state.locations[w.id]?.[p.id],
       }))
   ), [state]);
@@ -563,7 +567,9 @@ export default function GridStockApp({ entryRole: initialEntryRole = 'ops', comp
       return;
     }
     const resolvedTech = view === 'tech' && currentTech ? currentTech : techById(tid) || state.technicians[0];
-    const resolvedPart = partById(pid) || state.parts[0];
+    const resolvedPart = partById(pid) || (['use', 'return', 'departure'].includes(kind)
+      ? state.parts.find(part => (state.stock[resolvedTech?.id || '']?.[part.id] || 0) > 0)
+      : kind === 'withdraw' ? state.parts.find(part => (state.stock[defaultWid]?.[part.id] || 0) > 0) : undefined) || state.parts[0];
     const rTid = resolvedTech?.id || '';
     const rPid = resolvedPart?.id || '';
 
@@ -580,13 +586,9 @@ export default function GridStockApp({ entryRole: initialEntryRole = 'ops', comp
     setMoveSerial('');
     setMovePhoto('');
     setFormError('');
-    if (kind === 'use') {
-      captureGeolocation();
-    } else {
-      setGeoStatus('idle');
-      setGeoCoords(null);
-      setGeoError('');
-    }
+    setGeoStatus('idle');
+    setGeoCoords(null);
+    setGeoError('');
     setModal({ type: 'movement', kind, techId: rTid, partId: rPid, warehouseId: defaultWid });
   };
 
@@ -918,30 +920,18 @@ export default function GridStockApp({ entryRole: initialEntryRole = 'ops', comp
               </span>
             </div>
             <div className="login-hero">
-              <span className="eyebrow" style={{ color: 'var(--lime)' }}>{companyConfig.fieldService ? 'OPERAÇÃO E CAMPO EM TEMPO REAL' : 'ESTOQUE ORGANIZADO, OPERAÇÃO CONECTADA'}</span>
-              <h1>O próximo passo <br />da sua operação <br /><span>começa aqui.</span></h1>
-              <p>
-                {company?.tagline || (companyConfig.fieldService ? 'Conecte seus estoques à equipe em campo e acompanhe cada peça, da base ao atendimento.' : 'Acompanhe produtos, entradas, saídas e reposição em um só lugar.')}
-              </p>
-              <div className="login-benefits" aria-label="O que você pode fazer">
-                <div><Icon name="box" /><span><strong>Saiba onde está cada produto</strong><small>Consulte saldos e organize seus estoques.</small></span></div>
-                <div><Icon name="arrows" /><span><strong>Acompanhe cada movimentação</strong><small>Entradas e saídas com histórico de registros.</small></span></div>
-                <div><Icon name={companyConfig.fieldService ? 'users' : 'shield'} /><span><strong>{companyConfig.fieldService ? 'Conecte a base ao campo' : 'Organize o acesso da equipe'}</strong><small>{companyConfig.fieldService ? 'Retiradas, uso e devoluções no mesmo fluxo.' : 'Cada pessoa com seu perfil de acesso.'}</small></span></div>
-              </div>
-              {companyConfig.fieldService && <div className="login-flow" aria-label="Fluxo de estoque da base ao atendimento">
-                <div className="flow-step step-1"><span className="flow-icon"><Icon name="box" /></span><strong>Na base</strong><small>Estoque organizado</small></div>
-                <Icon name="arrow" />
-                <div className="flow-step step-2"><span className="flow-icon"><Icon name="van" /></span><strong>Em campo</strong><small>Equipe conectada</small></div>
-                <Icon name="arrow" />
-                <div className="flow-step step-3"><span className="flow-icon"><Icon name="check" /></span><strong>No destino</strong><small>Uso registrado</small></div>
-              </div>}
+              <span className="eyebrow">ESTOQUE EM MOVIMENTO</span>
+              <h1>Cada peça.<br /><span>Um caminho claro.</span></h1>
+              <p>{company?.tagline || (companyConfig.fieldService ? 'Da base ao local de utilização, acompanhe suas peças e mantenha a equipe conectada.' : 'Organize seus produtos e acompanhe cada entrada, saída e reposição.')}</p>
             </div>
-            <div className="login-operation-card">
-              <div className="login-operation-top"><Icon name="grid" /><span>SEU ESPAÇO DE TRABALHO</span><Icon name="shield" /></div>
-              <h2>{entryRole === 'tech' ? 'Da sua carga ao atendimento.' : 'Do estoque à próxima entrega.'}</h2>
-              <p>{entryRole === 'tech' ? 'Consulte suas peças e mantenha cada utilização registrada.' : 'Produtos, saldos e movimentações organizados no mesmo lugar.'}</p>
-              <div className="login-operation-row"><span><Icon name="box" /></span><div><strong>{entryRole === 'tech' ? 'Meu estoque pessoal' : 'Seus estoques, conectados'}</strong><small>{entryRole === 'tech' ? 'Saiba quais peças estão com você' : 'Consulte o saldo de cada localização'}</small></div><Icon name="check" /></div>
-              <div className="login-operation-row"><span><Icon name="arrows" /></span><div><strong>Uma história para cada movimento</strong><small>Registros para acompanhar e conferir</small></div><Icon name="check" /></div>
+            <div className="login-stock-journey" aria-label="Como o estoque se conecta à operação">
+              <div className="login-journey-heading"><span><Icon name="route" />Tudo no mesmo fluxo</span><small>GRIDSTOCK</small></div>
+              <ol>
+                <li><span className="journey-node"><Icon name="box" /></span><div><small>01 · ORGANIZE</small><strong>Seu estoque, no lugar certo.</strong><p>Produtos, endereços e saldos disponíveis.</p></div><Icon name="check" /></li>
+                <li><span className="journey-node"><Icon name={companyConfig.fieldService ? 'van' : 'arrows'} /></span><div><small>02 · MOVIMENTE</small><strong>{companyConfig.fieldService ? 'Cada peça com um responsável.' : 'Cada entrada e saída registrada.'}</strong><p>{companyConfig.fieldService ? 'Da base para o estoque pessoal da equipe.' : 'Consulte as movimentações da sua empresa.'}</p></div><Icon name="check" /></li>
+                <li><span className="journey-node"><Icon name="pin" /></span><div><small>03 · ACOMPANHE</small><strong>{companyConfig.fieldService ? 'Saiba onde foi utilizada.' : 'Um histórico para conferir.'}</strong><p>{companyConfig.fieldService ? 'Local, quantidade e referência em um só registro.' : 'Quantidade, origem e responsável pela operação.'}</p></div><Icon name="check" /></li>
+              </ol>
+              <div className="login-journey-footer"><Icon name="grid" />Clareza para quem opera. Controle para quem acompanha.</div>
             </div>
             <div className="small" style={{ color: '#8da396', position: 'relative', zIndex: 1 }}>GRIDSTOCK · Sistema de Gestão de Estoque em Movimento</div>
           </aside>
@@ -953,8 +943,8 @@ export default function GridStockApp({ entryRole: initialEntryRole = 'ops', comp
                 <ThemeToggle showLabel />
               </div>
               <span className="page-eyebrow">{company ? `BEM-VINDO À ${company.name.toUpperCase()}` : 'BEM-VINDO AO GRIDSTOCK'}</span>
-              <h2 key={entryRole} className="login-role-heading">{entryRole === 'tech' ? 'Seu dia em campo.' : 'Sua operação começa aqui.'}</h2>
-              <p>{entryRole === 'tech' ? 'Acesse suas peças e registre os atendimentos com seu CPF e senha.' : (companyConfig.fieldService ? 'Entre para acompanhar os estoques e a equipe em campo.' : 'Entre para gerenciar os produtos e estoques da sua empresa.')}</p>
+              <h2 key={entryRole} className="login-role-heading">{entryRole === 'tech' ? 'Seu dia em campo.' : 'Acesse seu espaço.'}</h2>
+              <p>{entryRole === 'tech' ? 'Consulte seu estoque e informe onde utilizou cada peça.' : (companyConfig.fieldService ? 'Entre para acompanhar os estoques e a equipe em campo.' : 'Entre para gerenciar os produtos e estoques da sua empresa.')}</p>
               {companyConfig.fieldService && <nav className="login-role-tabs" aria-label="Tipo de acesso" data-role={entryRole}>
                 <a href={companyBase || '/login'} onClick={e => { if (e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return; e.preventDefault(); if (loginLoading) return; setEntryRole('ops'); setLoginError(''); setConvertingCpf(false); }} aria-current={entryRole === 'ops' ? 'page' : undefined}><Icon name="grid" /><span>Operacional<small>Estoques e equipe</small></span></a>
                 <a href={`${companyBase}/tecnico`} onClick={e => { if (e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return; e.preventDefault(); if (loginLoading) return; setEntryRole('tech'); setLoginError(''); setConvertingCpf(false); }} aria-current={entryRole === 'tech' ? 'page' : undefined}><Icon name="van" /><span>Técnico<small>Materiais em campo</small></span></a>
@@ -976,6 +966,7 @@ export default function GridStockApp({ entryRole: initialEntryRole = 'ops', comp
               </div>
               <div className="field">
                 <label htmlFor="login-pass">Senha</label>
+                <div className="login-password-field">
                 <input
                   className="input"
                   id="login-pass"
@@ -988,22 +979,17 @@ export default function GridStockApp({ entryRole: initialEntryRole = 'ops', comp
                   required
                 />
                 <button className="login-show-password password-visibility" type="button" aria-controls="login-pass" aria-pressed={showLoginPassword} onClick={() => setShowLoginPassword(value => !value)}>{showLoginPassword ? 'Ocultar senha' : 'Mostrar senha'}</button>
+                </div>
               </div>
               <button className="button full" type="submit" disabled={loginLoading}>
                 <Icon name="check" />
                 {loginLoading ? 'Autenticando...' : convertingCpf ? 'Cadastrar CPF e entrar' : 'Entrar no sistema'}
               </button>
-              <button type="button" className="text-link" onClick={() => { setConvertingCpf(!convertingCpf); setLoginError(''); }}>{convertingCpf ? 'Já tenho CPF cadastrado' : 'Primeiro acesso por CPF? Converter conta antiga'}</button>
+              <button type="button" className="text-link login-legacy-toggle" onClick={() => { setConvertingCpf(!convertingCpf); setLoginError(''); }}>{convertingCpf ? 'Já tenho CPF cadastrado' : 'Primeiro acesso por CPF? Converter conta antiga'}</button>
               <div className="login-access-help"><Icon name="shield" /><p>Precisa de acesso ou esqueceu sua senha?<br /><strong>Fale com o administrador da sua empresa.</strong></p></div>
               <div className="login-hint">
                 {entryRole === 'tech' ? 'Use seu CPF e a senha fornecida pelo administrador.' : (companyConfig.fieldService ? 'Cadastre a equipe e acompanhe as movimentações de cada técnico.' : 'Acesso exclusivo aos dados da sua empresa.')}
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 6, marginTop: 10 }}>
-                  {companyConfig.fieldService && (
-                    <a className="text-link" style={{ marginTop: 0 }} onClick={e => { if (e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return; e.preventDefault(); if (loginLoading) return; setEntryRole(entryRole === 'tech' ? 'ops' : 'tech'); setLoginError(''); setConvertingCpf(false); }} href={entryRole === 'tech' ? (companyBase || '/login') : `${companyBase}/tecnico`}>
-                      <Icon name={entryRole === 'tech' ? 'grid' : 'van'} />
-                      {entryRole === 'tech' ? 'Acesso do operacional' : 'Acesso exclusivo do técnico'}
-                    </a>
-                  )}
                   <a className="text-link" style={{ marginTop: 0 }} href="/administracao">
                     <Icon name="shield" />
                     Central de Administração (Admin do Sistema)
@@ -1090,7 +1076,7 @@ export default function GridStockApp({ entryRole: initialEntryRole = 'ops', comp
             <span className="green">{state.movements.filter(m => m.kind === 'use').length} utilizações</span> registradas no histórico
           </div>
         </div>
-        <div className={`stat-card ${warehouseLowAlerts.length || allAlerts.length ? 'alert' : ''}`}>
+          <div className={`stat-card ${warehouseLowAlerts.length ? 'alert' : ''}`}>
           <div className="stat-top">Estoque baixo (Base)<span className="stat-icon"><Icon name="alert" /></span></div>
           <div className="stat-value mono">{fmtNum(warehouseLowAlerts.length)}</div>
           <div className="stat-foot">
@@ -1104,101 +1090,23 @@ export default function GridStockApp({ entryRole: initialEntryRole = 'ops', comp
   };
 
   const renderWarehouseLowStockBanner = () => {
-    if (!ops || warehouseLowAlerts.length === 0) return null;
-    return (
-      <section
-        className="panel"
-        style={{
-          marginBottom: 22,
-          border: '1px solid #e2b96b',
-          background: 'linear-gradient(180deg, #fffdf8 0%, #fcf6e8 100%)',
-        }}
-      >
-        <div className="panel-head" style={{ borderBottomColor: '#efe1c1' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <span
-              className="stat-icon"
-              style={{ background: '#f5e3be', color: '#8f6214', width: 36, height: 36, borderRadius: 10, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
-            >
-              <Icon name="alert" />
-            </span>
-            <div>
-              <h2 style={{ color: '#5c400c' }}>Alerta de Estoque Baixo no Almoxarifado</h2>
-              <p style={{ color: '#826329' }}>
-                As peças abaixo atingiram ou ficaram abaixo do estoque mínimo no próprio estoque base e precisam de reposição.
-              </p>
-            </div>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-            <Badge
-              label={`${warehouseLowAlerts.length} ${warehouseLowAlerts.length === 1 ? 'item baixo no estoque' : 'itens baixos no estoque'}`}
-              color="amber"
-              dot
-            />
-            <button
-              type="button"
-              className="button secondary"
-              style={{ padding: '6px 12px', fontSize: '.78rem' }}
-              onClick={() => setRestockModalOpen(true)}
-            >
-              <Icon name="download" />Gerar pedido de compra
-            </button>
-          </div>
-        </div>
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Peça em baixa</th>
-                <th>Estoque (Base)</th>
-                <th>Corredor / Prateleira</th>
-                <th>Saldo atual</th>
-                <th>Mínimo da base</th>
-                <th style={{ textAlign: 'right' }}>Ação</th>
-              </tr>
-            </thead>
-            <tbody>
-              {warehouseLowAlerts.map(item => (
-                <tr key={`${item.warehouse.id}-${item.part.id}`}>
-                  <td>
-                    <strong>{item.part.name}</strong>
-                    <span className="cell-sub">{item.part.sku} · {item.part.category}</span>
-                  </td>
-                  <td>
-                    <strong>{item.warehouse.name}</strong>
-                    <span className="cell-sub">{item.warehouse.code} · {item.warehouse.city}</span>
-                  </td>
-                  <td>
-                    {item.slot ? (
-                      <span className="address-tag">C{item.slot.corridor} / P{item.slot.shelf}</span>
-                    ) : (
-                      '—'
-                    )}
-                  </td>
-                  <td>
-                    <Badge
-                      label={item.qty === 0 ? 'ZERADO (0 un.)' : `${item.qty} ${item.part.unit}`}
-                      color="amber"
-                    />
-                  </td>
-                  <td className="mono">{item.min} {item.part.unit}</td>
-                  <td style={{ textAlign: 'right' }}>
-                    <button
-                      type="button"
-                      className="button secondary"
-                      style={{ padding: '6px 12px', fontSize: '.78rem' }}
-                      onClick={() => openMovementModal('entry', currentTech?.id || techId, item.part.id, item.warehouse.id)}
-                    >
-                      <Icon name="in" />Repor no estoque
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </section>
-    );
+    if (!ops || (!warehouseLowAlerts.length && !technicianAlerts.length)) return null;
+    const groups = [
+      { title: 'Nas bases', icon: 'box', items: warehouseLowAlerts.map(a => ({loc:a.warehouse.id, part:a.part.id, qty:a.qty, min:a.min})) },
+      { title: 'Com os técnicos', icon: 'users', items: technicianAlerts },
+    ];
+    return <section className="panel restock-panel" aria-label="Reposição por localização">
+      <div className="panel-head"><div><span className="page-eyebrow">ATENÇÃO AO ESTOQUE</span><h2>O que precisa de reposição</h2><p>Veja a peça, o local e quanto falta para atingir o mínimo.</p></div>
+        {warehouseLowAlerts.length > 0 && <button className="button secondary" onClick={() => setRestockModalOpen(true)}><Icon name="download" />Pedido de compra</button>}
+      </div>
+      <div className="restock-groups">{groups.map(group => <div className="restock-group" key={group.title}>
+        <h3><Icon name={group.icon} />{group.title}<span>{group.items.length}</span></h3>
+        {!group.items.length ? <p className="restock-ok"><Icon name="check" />Saldos dentro do mínimo.</p> : group.items.map(item => <div className="restock-item" key={`${item.loc}-${item.part}`}>
+          <div><strong>{partById(item.part)?.name}</strong><span>{locName(item.loc)}</span><small>Saldo {fmtNum(item.qty)} · Mínimo {fmtNum(item.min)}</small></div>
+          <div><b>Repor {fmtNum(item.min - item.qty)}</b><button className="text-link" onClick={() => { navigate('stock'); setFilterLoc(item.loc); setQuery(partById(item.part)?.sku || ''); setLowOnly(true); }}>Ver saldo <Icon name="arrow" /></button></div>
+        </div>)}
+      </div>)}</div>
+    </section>;
   };
 
   const renderTechStats = () => {
@@ -1234,6 +1142,39 @@ export default function GridStockApp({ entryRole: initialEntryRole = 'ops', comp
     );
   };
 
+  const movementDisplay = (m: Movement) => {
+    const p = partById(m.part);
+    const t = techById(m.technician);
+    const k = kindMap[m.kind] || ['Registro', '', 'box'];
+    const qty =
+      m.kind === 'count'
+        ? `${(m.delta || 0) > 0 ? '+' : ''}${m.delta}`
+        : m.kind === 'departure' ? `${m.qty}`
+        : m.kind === 'transfer'
+        ? `↔ ${m.qty}`
+        : m.part
+        ? `${['use', 'return', 'stockout'].includes(m.kind) ? '−' : '+'}${m.qty}`
+        : '—';
+    const tFirst = t ? t.name.split(' ')[0] : 'Técnico';
+    const gpsInfo = parsePlacementGps(m.placement);
+    const destination =
+      m.kind === 'transfer'
+        ? `${locName(m.from)} → ${locName(m.to)}`
+        : m.kind === 'withdraw'
+        ? `${locName(m.warehouse || 'base')} → ${tFirst}`
+        : m.kind === 'return'
+        ? `${tFirst} → ${locName(m.warehouse || 'base')}`
+        : ['entry', 'stockout'].includes(m.kind)
+        ? locName(m.warehouse)
+        : m.kind === 'count'
+        ? `${m.before} → ${m.qty} un. · ${m.note}`
+        : m.kind === 'departure'
+        ? `Saída do dia · ${m.note || 'Estoque pessoal'}`
+        : gpsInfo.text;
+    const sub = m.order || (m.toAddress || m.fromAddress ? slotLabel(m.toAddress || m.fromAddress) : '');
+    return { p, t, k, qty, gpsInfo, destination, sub };
+  };
+
   const renderMovementTable = (rows: Movement[]) => {
     if (!rows.length) {
       return (
@@ -1245,7 +1186,8 @@ export default function GridStockApp({ entryRole: initialEntryRole = 'ops', comp
       );
     }
     return (
-      <div className="table-wrap">
+      <>
+      <div className="table-wrap movement-desktop">
         <table>
           <thead>
             <tr>
@@ -1259,35 +1201,7 @@ export default function GridStockApp({ entryRole: initialEntryRole = 'ops', comp
           </thead>
           <tbody>
             {rows.map(m => {
-              const p = partById(m.part);
-              const t = techById(m.technician);
-              const k = kindMap[m.kind] || ['Registro', '', 'box'];
-              const qty =
-                m.kind === 'count'
-                  ? `${(m.delta || 0) > 0 ? '+' : ''}${m.delta}`
-                  : m.kind === 'departure' ? `${m.qty}`
-                  : m.kind === 'transfer'
-                  ? `↔ ${m.qty}`
-                  : m.part
-                  ? `${['use', 'return'].includes(m.kind) ? '−' : '+'}${m.qty}`
-                  : '—';
-              const tFirst = t ? t.name.split(' ')[0] : 'Técnico';
-              const gpsInfo = parsePlacementGps(m.placement);
-              const destination =
-                m.kind === 'transfer'
-                  ? `${locName(m.from)} → ${locName(m.to)}`
-                  : m.kind === 'withdraw'
-                  ? `${locName(m.warehouse || 'base')} → ${tFirst}`
-                  : m.kind === 'return'
-                  ? `${tFirst} → ${locName(m.warehouse || 'base')}`
-                  : m.kind === 'entry'
-                  ? locName(m.warehouse)
-                  : m.kind === 'count'
-                  ? `${m.before} → ${m.qty} un. · ${m.note}`
-                  : m.kind === 'departure'
-                  ? `Saída do dia · ${m.note || 'Estoque pessoal'}`
-                  : gpsInfo.text;
-              const sub = m.order || (m.toAddress || m.fromAddress ? slotLabel(m.toAddress || m.fromAddress) : '');
+              const { p, t, k, qty, gpsInfo, destination, sub } = movementDisplay(m);
               return (
                 <tr key={m.id}>
                   <td>
@@ -1307,7 +1221,7 @@ export default function GridStockApp({ entryRole: initialEntryRole = 'ops', comp
                     <span className="cell-sub">{t ? t.vehicle : 'Controle operacional'}</span>
                   </td>
                   <td><Badge label={k[0]} color={k[1]} /></td>
-                  <td className={`quantity ${['use', 'return'].includes(m.kind) ? 'negative' : ''}`}>{qty}</td>
+                  <td className={`quantity ${['use', 'return', 'stockout'].includes(m.kind) ? 'negative' : ''}`}>{qty}</td>
                   <td>
                     <span title={m.note}>{destination}</span>
                     {gpsInfo.mapUrl && (
@@ -1346,6 +1260,29 @@ export default function GridStockApp({ entryRole: initialEntryRole = 'ops', comp
           </tbody>
         </table>
       </div>
+      <div className="movement-cards" aria-label="Registros de movimentação">
+        {rows.map(m => {
+          const { p, t, k, qty, gpsInfo, destination } = movementDisplay(m);
+          return <article className="movement-card" key={m.id}>
+            <header><Badge label={k[0]} color={k[1]} /><time dateTime={new Date(m.ts).toISOString()}>{fmtDate(m.ts)} · {fmtTime(m.ts)}</time></header>
+            <h3>{p?.name || `${k[0]} em campo`}</h3>
+            <div className="movement-card-amount"><span>{p?.sku || m.id}</span><strong>{qty}{m.part ? ` ${p?.unit || 'un.'}` : ''}</strong></div>
+            <dl>
+              <div><dt>{m.kind === 'use' ? 'Onde foi utilizada' : 'Local / destino'}</dt><dd>{destination}</dd></div>
+              <div><dt>Responsável</dt><dd>{t?.name || m.operator || 'Controle operacional'}</dd></div>
+              {m.order && <div><dt>OS / referência</dt><dd>{m.order}</dd></div>}
+            </dl>
+            <details><summary>Detalhes do registro <span>{m.id}</span></summary>
+              {m.note && <p><strong>Observação:</strong> {m.note}</p>}
+              {m.serial && <p><strong>Série / MAC:</strong> {m.serial}</p>}
+              <p>Registrado por {m.operator || t?.name || 'Controle operacional'}.</p>
+              {gpsInfo.mapUrl && <a className="text-link" href={gpsInfo.mapUrl} target="_blank" rel="noopener noreferrer"><Icon name="pin" />Ver localização no mapa</a>}
+              {m.photo && <a className="text-link" href={m.photo} target="_blank" rel="noopener noreferrer"><Icon name="check" />Ver comprovante</a>}
+            </details>
+          </article>;
+        })}
+      </div>
+      </>
     );
   };
 
@@ -1471,25 +1408,6 @@ export default function GridStockApp({ entryRole: initialEntryRole = 'ops', comp
             </div>
           </section>
         </div>
-        {allAlerts.length > 0 && (
-          <div className="notice">
-            <Icon name="alert" />
-            <span>
-              <strong>{allAlerts.length} saldos abaixo do mínimo.</strong> Confira as peças que precisam de reposição.
-            </span>
-            <button
-              className="text-link"
-              onClick={() => {
-                setPage('stock');
-                clearFilters();
-                setLowOnly(true);
-                showToast('Exibindo peças abaixo do estoque mínimo.');
-              }}
-            >
-              Ver alertas <Icon name="arrow" />
-            </button>
-          </div>
-        )}
         <section className="panel">
           <div className="panel-head">
             <div>
@@ -1500,17 +1418,7 @@ export default function GridStockApp({ entryRole: initialEntryRole = 'ops', comp
               Ver todas <Icon name="arrow" />
             </button>
           </div>
-          <div className="dashboard-desktop-activity">{renderMovementTable(state.movements.slice(0, 5))}</div>
-          <div className="dashboard-mobile-activity">
-            {state.movements.length ? state.movements.slice(0, 5).map(movement => (
-              <article className="dashboard-activity-card" key={movement.id}>
-                <div><Badge label={kindMap[movement.kind]?.[0] || 'Registro'} color={kindMap[movement.kind]?.[1]} /><time dateTime={new Date(movement.ts).toISOString()}>{fmtDate(movement.ts)} · {fmtTime(movement.ts)}</time></div>
-                <strong>{partById(movement.part)?.name || movement.order || 'Atividade em campo'}</strong>
-                <p>{techById(movement.technician)?.name || movement.operator || 'Controle operacional'}</p>
-                <div><span>{movement.id}</span><strong>{movement.kind === 'count' ? `${fmtNum(movement.before || 0)} → ${fmtNum(movement.qty || 0)} un.` : movement.qty !== undefined ? `${fmtNum(movement.qty)} un.` : '—'}</strong></div>
-              </article>
-            )) : <div className="empty">Nenhuma movimentação registrada ainda.</div>}
-          </div>
+          {renderMovementTable(state.movements.slice(0, 5))}
           <div className="table-footer">
             <span>Últimos {Math.min(5, state.movements.length)} de {state.movements.length} registros</span>
             <span>Horário de Fortaleza · UTC−3</span>
@@ -2667,184 +2575,33 @@ export default function GridStockApp({ entryRole: initialEntryRole = 'ops', comp
     if (page === 'stock') return renderStockPage();
     if (page === 'movements') return renderMovementsPage();
 
-    return (
-      <>
-        <div className="page-heading">
-          <div>
-            <span className="page-eyebrow">SEU ESPAÇO EM CAMPO</span>
-            <h1>Olá, {currentTech.name.split(' ')[0]}.</h1>
-            <p>Seu dia em campo começa por aqui.</p>
-          </div>
-          <div className="heading-actions">
-            {isOpsUser && state.technicians.length > 0 && (
-              <select
-                className="tech-select"
-                value={currentTech.id}
-                onChange={e => {
-                  setTechId(e.target.value);
-                  clearFilters();
-                }}
-                aria-label="Selecionar técnico"
-              >
-                {state.technicians.map(t => (
-                  <option key={t.id} value={t.id}>{t.name} · {t.vehicle}</option>
-                ))}
-              </select>
-            )}
-          </div>
+    const personalTotal = calcTotal(state, currentTech.id);
+    const personalParts = [...state.parts].sort((a, b) => (state.stock[currentTech.id]?.[b.id] || 0) - (state.stock[currentTech.id]?.[a.id] || 0));
+    return <div className="tech-workspace">
+      <div className="page-heading"><div><span className="page-eyebrow">MEU DIA EM CAMPO</span><h1>Olá, {currentTech.name.split(' ')[0]}.</h1><p>Suas peças e cada utilização, em um só lugar.</p></div>
+        {isOpsUser && <div className="tech-preview-select"><label htmlFor="journey-tech">Visão do técnico · acesso operacional</label><select id="journey-tech" value={currentTech.id} onChange={e => {setTechId(e.target.value); clearFilters();}}>{state.technicians.map(t => <option key={t.id} value={t.id}>{t.name} · {t.vehicle}</option>)}</select></div>}
+      </div>
+      <section className="tech-day-panel" aria-label="Saldo e ações do técnico">
+        <div className="tech-day-balance"><span className="tech-day-icon"><Icon name="box" /></span><div><span>Peças comigo</span><strong>{fmtNum(personalTotal)} <small>unidades</small></strong><p>{personalTotal ? 'Disponíveis no seu estoque pessoal' : 'Seu estoque está vazio. Retire peças na base para começar.'}</p></div><button className="text-link" onClick={() => navigate('stock')}>Ver meu estoque <Icon name="arrow" /></button></div>
+        <div className="tech-day-actions">
+          <button className="tech-use-action" disabled={!personalTotal} onClick={() => openMovementModal('use', currentTech.id)}><Icon name="pin" /><span><strong>Informar onde usei</strong><small>Registre a peça, a quantidade e o local</small></span><Icon name="arrow" /></button>
+          <button onClick={() => openMovementModal('withdraw', currentTech.id)}><Icon name="out" /><span><strong>Retirar peças</strong><small>Da base para meu estoque</small></span></button>
+          <button disabled={!personalTotal} onClick={() => openMovementModal('return', currentTech.id)}><Icon name="in" /><span><strong>Devolver peças</strong><small>Entregar de volta à base</small></span></button>
         </div>
-        <section className="journey-guide" aria-label="Como registrar seu dia">
-          <div><span>01 · ANTES DE SAIR</span><h2>Confira suas peças</h2><p>Consulte seu saldo. Para buscar peças na base, registre uma retirada.</p><button className="text-link" onClick={() => navigate('stock')}>Conferir meu estoque →</button></div>
-          <div><span>02 · NO ATENDIMENTO</span><h2>Registre o que usou</h2><p>Informe as peças aplicadas na ordem de serviço para atualizar seu saldo.</p><button className="text-link" onClick={() => openMovementModal('use', currentTech.id)}>Registrar utilização →</button></div>
-          <div><span>03 · AO RETORNAR</span><h2>Devolva à base</h2><p>Registre somente as peças que você está entregando de volta ao estoque.</p><button className="text-link" onClick={() => openMovementModal('return', currentTech.id)}>Registrar devolução →</button></div>
-        </section>
-        {renderTechStats()}
-        {renderDailyDepartures(currentTech.id)}
-        <div className="grid-main">
-          <section className="tech-hero">
-            <div className="hero-top">
-              <span className="eyebrow">
-                MEU ESTOQUE PESSOAL E SAÍDA DO DIA · {currentTech.order || 'Campo'}
-              </span>
-              <Badge
-                label={`${calcTotal(state, currentTech.id)} peças comigo`}
-                color={calcTotal(state, currentTech.id) > 0 ? 'green' : 'amber'}
-                dot
-              />
-            </div>
-            <div>
-              <h2>{calcTotal(state, currentTech.id)} unidades no estoque pessoal</h2>
-              <p>
-                <Icon name="pin" />
-                Ao dar baixa em uma peça utilizada, o sistema ativa o GPS para registrar onde ela foi aplicada.
-              </p>
-            </div>
-            <div className="hero-bottom">
-              <button className="button lime" onClick={() => openMovementModal('use', currentTech.id)}>
-                <Icon name="pin" />Utilizar peça (ativar localização)
-              </button>
-              <span className="muted">
-                Baixa imediata do seu estoque<br />com localização GPS
-              </span>
-            </div>
-            <button
-              className="text-link"
-              style={{ color: '#c1d6ac', marginTop: 17, position: 'relative', zIndex: 1 }}
-              onClick={() => openMovementModal('departure', currentTech.id)}
-            >
-              Declarar peças de saída do dia <Icon name="arrow" />
-            </button>
-          </section>
-          <section className="panel">
-            <div className="panel-head">
-              <div>
-                <h2>Movimente seu estoque</h2>
-                <p>Cada registro mantém a operação atualizada</p>
-              </div>
-            </div>
-            <div className="quick-actions">
-              <button className="quick-action" onClick={() => openMovementModal('departure', currentTech.id)}>
-                <span className="quick-icon"><Icon name="van" /></span>
-                <div><strong>Registrar saída do dia</strong><small>Declare as peças do seu estoque que levará hoje</small></div>
-                <Icon name="chevron" />
-              </button>
-              <button className="quick-action" onClick={() => openMovementModal('withdraw', currentTech.id)}>
-                <span className="quick-icon"><Icon name="out" /></span>
-                <div>
-                  <strong>Retirar peças</strong>
-                  <small>Da base para o seu veículo</small>
-                </div>
-                <Icon name="chevron" />
-              </button>
-              <button className="quick-action" onClick={() => openMovementModal('return', currentTech.id)}>
-                <span className="quick-icon"><Icon name="in" /></span>
-                <div>
-                  <strong>Devolver peças</strong>
-                  <small>Retorne o que não foi utilizado</small>
-                </div>
-                <Icon name="chevron" />
-              </button>
-              <button className="quick-action" onClick={() => openMovementModal('count', currentTech.id)}>
-                <span className="quick-icon"><Icon name="edit" /></span>
-                <div>
-                  <strong>Informar estoque pessoal</strong>
-                  <small>Conferência: informe o saldo total, não uma entrada</small>
-                </div>
-                <Icon name="chevron" />
-              </button>
-            </div>
-          </section>
-        </div>
-        <section className="panel">
-          <div className="panel-head">
-            <div>
-              <h2>Meu estoque em campo</h2>
-              <p>Peças disponíveis no {currentTech.vehicle}</p>
-            </div>
-            <button className="text-link" onClick={() => navigate('stock')}>
-              Ver inventário <Icon name="arrow" />
-            </button>
-          </div>
-          {state.parts.length ? (
-            <div className="inventory-grid">
-              {state.parts.slice(0, 6).map(p => {
-                const qty = state.stock[currentTech.id]?.[p.id] ?? 0;
-                const low = qty < p.min;
-                return (
-                  <article key={p.id} className="inventory-card">
-                    <div className="inventory-top">
-                      <span className="item-icon"><Icon name="box" /></span>
-                      <Badge label={low ? 'Repor' : 'Disponível'} color={low ? 'amber' : 'green'} />
-                    </div>
-                    <h3>{p.name}</h3>
-                    <span className="sku">{p.sku}</span>
-                    <div className="inventory-bottom">
-                      <div>
-                        <strong>{qty}</strong>
-                        <small>{p.unit}</small>
-                      </div>
-                      <button
-                        className="button secondary"
-                        disabled={qty === 0}
-                        onClick={() => openMovementModal('use', currentTech.id, p.id)}
-                      >
-                        Usar peça <Icon name="arrow" />
-                      </button>
-                    </div>
-                    <div className="inventory-track">
-                      <span
-                        style={{
-                          width: `${Math.min(100, (qty / Math.max(1, p.min * 3)) * 100)}%`,
-                          background: low ? '#cbaa72' : undefined,
-                        }}
-                      />
-                    </div>
-                  </article>
-                );
-              })}
-            </div>
-          ) : (
-            <div className="empty">
-              <Icon name="box" />
-              <div>Nenhum produto cadastrado no catálogo.</div>
-              <p>Aguarde o cadastro de produtos pela operação.</p>
-            </div>
-          )}
-        </section>
-        <section className="panel" style={{ marginTop: 22 }}>
-          <div className="panel-head">
-            <div>
-              <h2>Minha atividade recente</h2>
-              <p>Seu histórico de peças e atendimentos</p>
-            </div>
-            <button className="text-link" onClick={() => navigate('movements')}>
-              Ver histórico <Icon name="arrow" />
-            </button>
-          </div>
-          {renderMovementTable(state.movements.filter(m => m.technician === currentTech.id).slice(0, 4))}
-        </section>
-      </>
-    );
+        <p className="tech-day-caption"><Icon name="shield" />O local de utilização fica visível ao operacional. A localização GPS é opcional.</p>
+      </section>
+      <div className="tech-secondary-actions"><button className="button secondary" onClick={() => openMovementModal('departure', currentTech.id)}><Icon name="van" />Declarar peças de saída do dia</button><button className="text-link" onClick={() => openMovementModal('count', currentTech.id)}><Icon name="edit" />Conferir estoque pessoal</button></div>
+      <div className="tech-summary-stats">{renderTechStats()}</div>
+      {renderDailyDepartures(currentTech.id)}
+      <section className="panel">
+        <div className="panel-head"><div><h2>Meu estoque em campo</h2><p>Escolha uma peça para informar onde ela foi utilizada.</p></div><button className="text-link" onClick={() => navigate('stock')}>Ver todas <Icon name="arrow" /></button></div>
+        {personalParts.length ? <div className="inventory-grid">{personalParts.slice(0, 6).map(p => {
+          const qty = state.stock[currentTech.id]?.[p.id] ?? 0;
+          return <article key={p.id} className="inventory-card"><div className="inventory-top"><span className="item-icon"><Icon name="box" /></span><Badge label={qty === 0 ? 'Sem saldo' : qty < p.min ? 'Repor' : 'Disponível'} color={qty < p.min || !qty ? 'amber' : 'green'} /></div><h3>{p.name}</h3><span className="sku">{p.sku}</span><div className="inventory-bottom"><div><strong>{qty}</strong><small>{p.unit}</small></div><button className="button secondary" disabled={!qty} onClick={() => openMovementModal('use', currentTech.id, p.id)}><Icon name="pin" />Informar uso</button></div></article>;
+        })}</div> : <div className="empty"><Icon name="box" /><p>Solicite ao operacional o cadastro das peças para começar.</p></div>}
+      </section>
+      <section className="panel"><div className="panel-head"><div><h2>Minha atividade recente</h2><p>Peças, quantidades e locais registrados.</p></div><button className="text-link" onClick={() => navigate('movements')}>Ver histórico <Icon name="arrow" /></button></div>{renderMovementTable(state.movements.filter(m => m.technician === currentTech.id).slice(0, 4))}</section>
+    </div>;
   };
 
   const renderModal = () => {
@@ -2855,7 +2612,7 @@ export default function GridStockApp({ entryRole: initialEntryRole = 'ops', comp
       const labels: Record<string, [string, string, string]> = {
         withdraw: ['Registrar retirada', 'Escolha o estoque de origem para abastecer o técnico.', 'Confirmar retirada'],
         return: ['Registrar devolução', 'Escolha o estoque que receberá as peças devolvidas.', 'Confirmar devolução'],
-        use: ['Registrar utilização', 'Vincule a peça ao atendimento e ao local onde foi aplicada.', 'Confirmar utilização'],
+        use: ['Onde você utilizou esta peça?', 'Informe o local para o operacional acompanhar a utilização do seu estoque.', 'Registrar utilização'],
         count: ['Informar estoque pessoal', 'Informe o total que você já possui de cada peça do catálogo e a origem ou justificativa.', 'Salvar estoque pessoal'],
         departure: ['Registrar saída do dia', 'Informe quantas unidades do seu estoque levará hoje. O registro mantém o saldo e fica visível ao operacional. Para corrigir, registre novamente o total da peça.', 'Registrar saída'],
         stockout: ['Saída de estoque', 'Registre uma baixa por venda, consumo ou perda.', 'Confirmar saída'],
@@ -2874,12 +2631,16 @@ export default function GridStockApp({ entryRole: initialEntryRole = 'ops', comp
       const selTech = techById(moveTechId);
       const baseQty = state.stock[moveWarehouseId]?.[movePartId] ?? 0;
       const ownQty = selTech ? state.stock[selTech.id]?.[movePartId] ?? 0 : 0;
-      const nextQty = kind === 'departure' ? ownQty : kind === 'count' ? moveQty : kind === 'withdraw' ? ownQty + moveQty : ownQty - moveQty;
+      const preview = movementPreview(kind, moveQty, baseQty, ownQty);
+      const needsBase = ['withdraw', 'return', 'entry', 'stockout'].includes(kind);
+      const quantityError = !partById(movePartId) ? 'Selecione uma peça válida.' : needsBase && !warehouseById(moveWarehouseId) ? 'Selecione um estoque válido.' : !['entry', 'stockout'].includes(kind) && !selTech ? 'Selecione um técnico válido.' : preview.error;
       const existingSlot = state.locations[moveWarehouseId]?.[movePartId];
 
       const handleMovementSubmit = async (ev: React.FormEvent) => {
         ev.preventDefault();
         if (submitting) return;
+        if (quantityError) { setFormError(quantityError); return; }
+        if (kind === 'use' && !moveSite.trim()) { setFormError('Informe onde a peça foi utilizada.'); return; }
         setFormError('');
         setSubmitting(true);
         try {
@@ -3047,44 +2808,13 @@ export default function GridStockApp({ entryRole: initialEntryRole = 'ops', comp
                     </div>
                   </div>
                 )}
-                <div className="balance-preview">
-                  {['entry', 'stockout'].includes(kind) ? (
-                    <>
-                      <span>Saldo atual na base: <strong>{baseQty} un.</strong></span>
-                      <span>
-                        Após movimentação:{' '}
-                        <strong>
-                          {!Number.isSafeInteger(moveQty) || moveQty < 1 ? 'Quantidade inválida' : `${kind === 'stockout' ? baseQty - moveQty : baseQty + moveQty} un.`}
-                        </strong>
-                      </span>
-                    </>
-                  ) : (
-                    <>
-                      <span>
-                        {kind === 'withdraw' ? 'Base: ' : 'Saldo atual: '}
-                        <strong>{kind === 'withdraw' ? baseQty : ownQty} un.</strong>
-                      </span>
-                      <span>
-                        {kind === 'withdraw'
-                          ? 'Técnico'
-                          : kind === 'return'
-                          ? 'Base após retorno'
-                          : kind === 'count'
-                          ? 'Após ajuste'
-                          : kind === 'departure' ? 'Saldo pessoal' : 'Após utilização'}
-                        :{' '}
-                        <strong>
-                          {!Number.isSafeInteger(moveQty) ||
-                          moveQty < (['count', 'departure'].includes(kind) ? 0 : 1) ||
-                          (kind === 'withdraw' && moveQty > baseQty) ||
-                          (['return', 'use', 'departure'].includes(kind) && moveQty > ownQty)
-                            ? 'Quantidade inválida'
-                            : `${kind === 'return' ? baseQty + moveQty : nextQty} un.`}
-                        </strong>
-                      </span>
-                    </>
-                  )}
+                <div className="movement-balances" aria-label="Saldo antes e depois" aria-live="polite">
+                  <div className="balance-columns"><span>Local</span><span>Agora</span><span>Após confirmar</span></div>
+                  {needsBase && <div className="balance-columns"><span><Icon name="box" /><strong>{locName(moveWarehouseId)}</strong><small>Estoque base</small></span><b>{fmtNum(baseQty)}</b><b>{quantityError ? '—' : fmtNum(preview.baseAfter)}</b></div>}
+                  {!['entry', 'stockout'].includes(kind) && <div className="balance-columns"><span><Icon name="van" /><strong>{selTech?.name || 'Técnico'}</strong><small>Estoque pessoal</small></span><b>{fmtNum(ownQty)}</b><b>{quantityError ? '—' : fmtNum(preview.personalAfter)}</b></div>}
+                  {kind === 'departure' && <p>A declaração de saída do dia não altera o saldo.</p>}
                 </div>
+                {quantityError && <div className="movement-validation" id="movement-quantity-error" role="status"><Icon name="alert" /><div>{quantityError}{ownQty === 0 && ['return', 'use', 'departure'].includes(kind) && <button className="text-link" type="button" onClick={() => openMovementModal('withdraw', moveTechId, movePartId)}>Retirar esta peça da base <Icon name="arrow" /></button>}</div></div>}
                 <div className="field">
                   <label htmlFor="move-qty">
                     {kind === 'count' ? 'Quantidade encontrada na contagem' : 'Quantidade (unidades)'}
@@ -3092,6 +2822,8 @@ export default function GridStockApp({ entryRole: initialEntryRole = 'ops', comp
                   <input
                     className="input"
                     id="move-qty"
+                    aria-invalid={!!quantityError}
+                    aria-describedby={quantityError ? "movement-quantity-error" : undefined}
                     type="number"
                     min={['count', 'departure'].includes(kind) ? 0 : 1}
                     step={1}
@@ -3119,11 +2851,11 @@ export default function GridStockApp({ entryRole: initialEntryRole = 'ops', comp
                       <Icon name="pin" />
                       <div style={{ flex: 1, minWidth: 200 }}>
                         {geoStatus === 'loading' && (
-                          <strong>Ativando GPS para identificar onde a peça está sendo utilizada...</strong>
+                          <strong>Buscando sua localização…</strong>
                         )}
                         {geoStatus === 'success' && geoCoords && (
                           <>
-                            <strong>Localização GPS capturada automaticamente</strong>
+                            <strong>Localização GPS adicionada ao registro</strong>
                             <div className="small muted">
                               Coordenadas: {geoCoords.lat}, {geoCoords.lng} (precisão ±{geoCoords.accuracy}m)
                             </div>
@@ -3131,12 +2863,12 @@ export default function GridStockApp({ entryRole: initialEntryRole = 'ops', comp
                         )}
                         {geoStatus === 'error' && (
                           <>
-                            <strong>GPS não capturado automaticamente</strong>
+                            <strong>Não foi possível obter o GPS. Informe o local abaixo para continuar.</strong>
                             <div className="small">{geoError}</div>
                           </>
                         )}
                         {geoStatus === 'idle' && (
-                          <strong>Clique ao lado para ativar sua localização GPS atual</strong>
+                          <strong>GPS opcional · você pode informar o local manualmente</strong>
                         )}
                       </div>
                       <button
@@ -3146,18 +2878,18 @@ export default function GridStockApp({ entryRole: initialEntryRole = 'ops', comp
                         onClick={captureGeolocation}
                       >
                         <Icon name="pin" />
-                        {geoStatus === 'loading' ? 'Buscando GPS...' : 'Atualizar localização GPS'}
+                        {geoStatus === 'loading' ? 'Buscando GPS...' : 'Adicionar localização GPS'}
                       </button>
                     </div>
                     <div className="form-grid">
                       <div className="field">
-                        <label htmlFor="move-place">Endereço / Local de utilização (GPS) *</label>
+                        <label htmlFor="move-place">Onde a peça foi utilizada? *</label>
                         <input
                           className="input"
                           id="move-place"
                           value={moveSite}
                           onChange={e => setMoveSite(e.target.value)}
-                          placeholder="Preenchido pelo GPS ou digite o endereço/cliente"
+                          placeholder="Ex.: Cliente Ana · Rua das Flores, 120"
                           maxLength={130}
                           required
                         />
@@ -3242,7 +2974,7 @@ export default function GridStockApp({ entryRole: initialEntryRole = 'ops', comp
                 )}
                 <div className="field">
                   <label htmlFor="move-note">
-                    {kind === 'return'
+                    {kind === 'stockout' ? 'Motivo da saída *' : kind === 'return'
                       ? 'Motivo da devolução *'
                       : kind === 'count'
                       ? 'Justificativa do ajuste *'
@@ -3255,7 +2987,7 @@ export default function GridStockApp({ entryRole: initialEntryRole = 'ops', comp
                     value={moveNote}
                     onChange={e => setMoveNote(e.target.value)}
                     maxLength={300}
-                    required={['return', 'count'].includes(kind)}
+                    required={['return', 'count', 'stockout'].includes(kind)}
                     placeholder={
                       kind === 'return'
                         ? 'Ex.: sobra do atendimento, peça sem uso e em boas condições'
@@ -3273,7 +3005,7 @@ export default function GridStockApp({ entryRole: initialEntryRole = 'ops', comp
               </div>
               <div className="modal-footer">
                 <button className="button secondary" type="button" disabled={submitting} onClick={() => setModal(null)}>Cancelar</button>
-                <button className="button" type="submit" disabled={submitting}><Icon name="check" />{submitting ? 'Salvando...' : submitLabel}</button>
+                <button className="button" type="submit" disabled={submitting || !!quantityError}><Icon name="check" />{submitting ? 'Salvando...' : submitLabel}</button>
               </div>
             </form>
           </section>
@@ -4100,7 +3832,7 @@ export default function GridStockApp({ entryRole: initialEntryRole = 'ops', comp
       const toSlot = state.locations[trTo]?.[activePartId];
       const fromQty = state.stock[trFrom]?.[activePartId] || 0;
       const toQty = state.stock[trTo]?.[activePartId] || 0;
-      const valid = Number.isSafeInteger(trQty) && trQty > 0 && trQty <= fromQty && trFrom !== trTo;
+      const valid = Number.isSafeInteger(trQty) && trQty > 0 && trQty <= fromQty && trFrom !== trTo && Number.isSafeInteger(toQty + trQty);
 
       return (
         <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setModal(null)}>
@@ -4117,7 +3849,10 @@ export default function GridStockApp({ entryRole: initialEntryRole = 'ops', comp
             <form
               onSubmit={async ev => {
                 ev.preventDefault();
+                if (submitting) return;
+                if (!valid) { setFormError('Confira a quantidade disponível e escolha estoques diferentes.'); return; }
                 setFormError('');
+                setSubmitting(true);
                 try {
                   const res = await apiCall('POST', '/api/movements', {
                     kind: 'transfer',
@@ -4134,7 +3869,7 @@ export default function GridStockApp({ entryRole: initialEntryRole = 'ops', comp
                   showToast('Transferência concluída. Saldos dos dois estoques atualizados.');
                 } catch (err) {
                   setFormError(err instanceof Error ? err.message : 'Erro na transferência.');
-                }
+                } finally { setSubmitting(false); }
               }}
             >
               <div className="modal-body">
@@ -4236,6 +3971,7 @@ export default function GridStockApp({ entryRole: initialEntryRole = 'ops', comp
                     </p>
                   </>
                 )}
+                {!valid && <div className="movement-validation" role="status">Confira a quantidade disponível e escolha estoques de origem e destino diferentes.</div>}
                 <div className="transfer-preview">
                   <div>
                     <small>ORIGEM · {locName(trFrom)}</small>
@@ -4263,7 +3999,7 @@ export default function GridStockApp({ entryRole: initialEntryRole = 'ops', comp
               </div>
               <div className="modal-footer">
                 <button type="button" className="button secondary" onClick={() => setModal(null)}>Cancelar</button>
-                <button type="submit" className="button" disabled={!originParts.length}>
+                <button type="submit" className="button" disabled={!originParts.length || !valid || submitting}>
                   <Icon name="arrows" />Confirmar transferência
                 </button>
               </div>
@@ -4747,7 +4483,7 @@ export default function GridStockApp({ entryRole: initialEntryRole = 'ops', comp
             <p>
               {isOpsUser
                 ? 'Gerencie usuários, acessos e a trilha de auditoria da sua empresa.'
-                : 'Registre chegadas, aplicações em OS e devoluções em tempo real.'}
+                : 'Registre retiradas, locais de uso e devoluções em tempo real.'}
             </p>
             {isOpsUser ? (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>

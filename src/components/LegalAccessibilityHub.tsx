@@ -102,7 +102,7 @@ export default function LegalAccessibilityHub() {
       }
 
       // Focus trap when a modal dialog is open
-      if (e.key === 'Tab') {
+      if (e.key === 'Tab' && !e.defaultPrevented) {
         const activeModal = document.querySelector<HTMLElement>('.modal-overlay .modal');
         if (activeModal) {
           const focusables = Array.from(
