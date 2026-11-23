@@ -1,3 +1,5 @@
+import { can, parsePolicy, defaultPermissions, type Permission } from './permissions';
+import { policies, policyFor, writePolicies, protectLastAdmin, ACCESS_KEY } from './accessPolicy';
 import { requireCpf, isValidCpf, normalizeCpf } from './cpf';
 import { assertCpfAvailable, companyIdForDatabase } from './companies';
 import fs from 'node:fs';
@@ -28,6 +30,8 @@ export interface UserAccount {
   name: string;
   role: 'ops' | 'tech';
   technicianId: string | null;
+  companyAdmin?: boolean;
+  permissions?: Permission[];
   createdAt: number;
 }
 
@@ -79,9 +83,10 @@ export function verifyPassword(password: string, stored: string): boolean {
   return crypto.timingSafeEqual(candidate, expected);
 }
 
-function cleanUser(row?: UserRow | null): UserAccount | null {
+function cleanUser(row: UserRow | null | undefined, db: DatabaseSync): UserAccount | null {
   if (!row) return null;
   return {
+    ...policyFor(db, row),
     id: row.id,
     username: row.username,
     name: row.name,
@@ -540,7 +545,8 @@ export function authenticate(username: unknown, password: unknown, db = getDb(),
   if (!row || (legacyConversion && isValidCpf(row.username)) || !verifyPassword(p, row.password_hash)) {
     throw new Error('Usuário ou senha inválidos.');
   }
-  const user = cleanUser(row)!;
+  if (db.prepare('SELECT key FROM app_meta WHERE key=?').get(ACCESS_KEY) && !policies(db)[row.id]) throw new Error('Acesso revogado.');
+  const user = cleanUser(row, db)!;
   const now = Date.now();
   const expiresAt = now + 12 * 60 * 60 * 1000;
   const token = crypto.randomBytes(32).toString('base64url');
@@ -567,7 +573,8 @@ export function getUserFromRequest(req: Request, db = getDb()): UserAccount | nu
       return null;
     }
     const userRow = db.prepare('SELECT * FROM users WHERE id = ?').get(session.user_id) as UserRow | undefined;
-    return cleanUser(userRow);
+    if (userRow && db.prepare('SELECT key FROM app_meta WHERE key=?').get(ACCESS_KEY) && !policies(db)[userRow.id]) return null;
+    return cleanUser(userRow, db);
   }
   return null;
 }
@@ -581,7 +588,7 @@ export function logoutRequest(req: Request, db = getDb()): void {
 
 export function listUsers(db = getDb()): UserAccount[] {
   const rows = db.prepare('SELECT * FROM users ORDER BY created_at ASC').all() as unknown as UserRow[];
-  return rows.map(r => cleanUser(r)!);
+  return rows.map(r => cleanUser(r, db)!);
 }
 
 export function saveUser(payload: Record<string, unknown>, db = getDb()): UserAccount {
@@ -598,10 +605,17 @@ export function saveUser(payload: Record<string, unknown>, db = getDb()): UserAc
   const technicianId = role === 'tech' ? String(payload.technicianId ?? '').trim() || null : null;
   const password = String(payload.password ?? '').trim();
 
+  const access = payload.access === undefined ? (existing ? policyFor(db, existing) : {companyAdmin: role === 'ops' && listUsers(db).length === 0, permissions: defaultPermissions(role)}) : parsePolicy(payload.access, role);
+  const policyMap = policies(db);
+  if (existing) protectLastAdmin(db, existing.id, role === 'ops' && access.companyAdmin);
+  const normalizedAccess = parsePolicy(role === 'tech' && existing?.role !== 'tech' && payload.access === undefined ? {companyAdmin:false, permissions:defaultPermissions('tech')} : access, role);
+
   if (!name) throw new Error('Informe o nome do usuário.');
   if (role === 'tech' && !technicianId) {
     throw new Error('Vincule este usuário a um técnico cadastrado.');
   }
+
+  if (role === 'tech' && db.prepare('SELECT id FROM users WHERE technician_id=? AND id!=?').get(technicianId,existing?.id||'')) throw new Error('Este técnico já possui uma conta de acesso.');
 
   assertCpfAvailable(username, companyIdForDatabase(db) || 'root', existing?.id || '');
   const dup = db
@@ -618,8 +632,9 @@ export function saveUser(payload: Record<string, unknown>, db = getDb()): UserAc
       WHERE id = ?
     `).run(username, name, nextHash, role, technicianId, existing.id);
     if (password || username !== existing.username || role !== existing.role || technicianId !== existing.technician_id) db.prepare('DELETE FROM sessions WHERE user_id = ?').run(existing.id);
+    writePolicies(db, {...policyMap, [existing.id]: normalizedAccess});
     const updatedRow = db.prepare('SELECT * FROM users WHERE id = ?').get(existing.id) as unknown as UserRow;
-    return cleanUser(updatedRow)!;
+    return cleanUser(updatedRow, db)!;
   }
 
   if (!password || password.length < 8) {
@@ -631,8 +646,9 @@ export function saveUser(payload: Record<string, unknown>, db = getDb()): UserAc
     INSERT INTO users (id, username, name, password_hash, role, technician_id, created_at)
     VALUES (?, ?, ?, ?, ?, ?, ?)
   `).run(id, username, name, hashPassword(password), role, technicianId, now);
+  writePolicies(db, {...policyMap, [id]: normalizedAccess});
   const createdRow = db.prepare('SELECT * FROM users WHERE id = ?').get(id) as unknown as UserRow;
-  return cleanUser(createdRow)!;
+  return cleanUser(createdRow, db)!;
 }
 
 export function syncTechnicianUser(
@@ -646,7 +662,7 @@ export function syncTechnicianUser(
   const existing = db.prepare('SELECT * FROM users WHERE technician_id = ?').get(technician.id) as UserRow | undefined;
 
   if (!cleanUsername) {
-    return existing ? cleanUser(existing) : null;
+    return existing ? cleanUser(existing, db) : null;
   }
 
   if (existing) {
@@ -684,23 +700,31 @@ export function deleteUser(id: string, activeUserId: string, db = getDb()): bool
   if (existing.id === activeUserId) {
     throw new Error('Você não pode excluir o seu próprio usuário em uso.');
   }
+  protectLastAdmin(db, existing.id, false);
   if (existing.role === 'ops') {
     const opsCount = (db.prepare("SELECT COUNT(*) AS cnt FROM users WHERE role = 'ops'").get() as { cnt: number }).cnt;
     if (opsCount <= 1) throw new Error('O sistema precisa manter pelo menos um usuário de Operação.');
   }
   db.prepare('DELETE FROM sessions WHERE user_id = ?').run(existing.id);
   db.prepare('DELETE FROM users WHERE id = ?').run(existing.id);
+  const access = policies(db); delete access[existing.id]; writePolicies(db, access);
   return true;
 }
 
 export function stateForUser(state: GridStockState, user: UserAccount): GridStockState {
-  if (user.role === 'ops') return state;
-  const movements = state.movements.filter(m => m.technician === user.technicianId);
-  const locations = new Set([...state.warehouses.map(w => w.id), user.technicianId]);
+  const own = user.role === 'tech';
+  const team = !own && can(user, 'team');
+  const stock = can(user, 'stock');
+  const history = can(user, 'history');
+  const visibleLocations = new Set([...state.warehouses.map(w => w.id), ...(own ? [user.technicianId] : team ? state.technicians.map(t => t.id) : [])]);
+  const movements = history ? state.movements.filter(m => own ? m.technician === user.technicianId : !m.technician || team) : [];
   return {
     ...state,
-    technicians: state.technicians.filter(t => t.id === user.technicianId),
-    stock: Object.fromEntries(Object.entries(state.stock).filter(([id]) => locations.has(id))),
+    parts: stock || history ? state.parts : [],
+    warehouses: stock || history ? state.warehouses : [],
+    technicians: own ? state.technicians.filter(t => t.id === user.technicianId) : team ? state.technicians : [],
+    stock: stock ? Object.fromEntries(Object.entries(state.stock).filter(([id]) => visibleLocations.has(id))) : {},
+    locations: stock ? Object.fromEntries(Object.entries(state.locations).filter(([id]) => visibleLocations.has(id))) : {},
     movements,
     used: movements.filter(m => m.kind === 'use').reduce((sum, m) => sum + (m.qty || 0), 0),
   };

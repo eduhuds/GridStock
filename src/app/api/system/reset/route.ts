@@ -1,7 +1,9 @@
+import { refreshAccessPolicy, persistAccessPolicy } from '@/lib/accessPolicySync';
+import { policies, writePolicies } from '@/lib/accessPolicy';
 import { secureRoute } from '@/lib/apiSecurity';
 import { databaseForRequest, enforceCompanyAction } from '@/lib/companies';
 import { NextResponse } from 'next/server';
-import { getUserFromRequest, listUsers, loadState, saveState, syncTechnicianUser, recordCompanyAudit, listCompanyAudit } from '@/lib/db';
+import { stateForUser, getUserFromRequest, listUsers, loadState, saveState, syncTechnicianUser, recordCompanyAudit, listCompanyAudit } from '@/lib/db';
 import { emptyState, seed } from '@/lib/domain';
 import { ensureSupabaseSynced, pullPlatformFromSupabase, pushAllToSupabase } from '@/lib/supabaseStore';
 
@@ -12,9 +14,10 @@ async function handlePOST(req: Request) {
     await pullPlatformFromSupabase();
     const db = databaseForRequest(req);
     await ensureSupabaseSynced(db);
+    await refreshAccessPolicy(db);
     const user = getUserFromRequest(req, db);
     if (!user) return NextResponse.json({ error: 'Não autenticado.' }, { status: 401 });
-    if (user.role !== 'ops') return NextResponse.json({ error: 'Acesso restrito ao Controle Operacional.' }, { status: 403 });
+    if (!user.companyAdmin) return NextResponse.json({ error: 'Seu acesso não permite esta ação. Solicite autorização ao administrador.' }, { status: 403 });
 
     if (req.headers.has('x-gridstock-company')) return NextResponse.json({ error: 'A redefinição de empresas é exclusiva da Central de Administração.' }, { status: 403 });
     const body = await req.json();
@@ -24,11 +27,14 @@ async function handlePOST(req: Request) {
     saveState(db, nextState);
 
     if (body.mode === 'empty') {
+      const access = policies(db);
       const techUsers = db.prepare("SELECT id FROM users WHERE role = 'tech'").all() as { id: string }[];
       for (const tu of techUsers) {
         db.prepare('DELETE FROM sessions WHERE user_id = ?').run(tu.id);
+        delete access[tu.id];
       }
       db.exec("DELETE FROM users WHERE role = 'tech'");
+      writePolicies(db, access);
     } else if (body.mode === 'seed' && process.env.GRIDSTOCK_SEED_TECH_PASSWORD) {
       for (const t of nextState.technicians) {
         const login = t.name
@@ -55,9 +61,10 @@ async function handlePOST(req: Request) {
           : 'Estoques, produtos, técnicos e movimentações foram limpos',
     });
 
+    await persistAccessPolicy(db);
     await pushAllToSupabase(db);
     const finalState = loadState(db);
-    return NextResponse.json({ state: finalState, users: listUsers(db), audit: listCompanyAudit(db, finalState) });
+    return NextResponse.json({ state: finalState, users: user.companyAdmin ? listUsers(db) : [], audit: listCompanyAudit(db, finalState) });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Erro ao redefinir banco de dados.';
     return NextResponse.json({ error: message }, { status: 400 });

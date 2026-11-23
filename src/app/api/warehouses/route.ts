@@ -1,7 +1,9 @@
+import { refreshAccessPolicy } from '@/lib/accessPolicySync';
+import { can } from '@/lib/permissions';
 import { secureRoute } from '@/lib/apiSecurity';
 import { databaseForRequest, enforceCompanyAction } from '@/lib/companies';
 import { NextResponse } from 'next/server';
-import { getUserFromRequest, loadState, saveState, recordCompanyAudit, listCompanyAudit } from '@/lib/db';
+import { stateForUser, getUserFromRequest, loadState, saveState, recordCompanyAudit, listCompanyAudit } from '@/lib/db';
 import { saveWarehouse } from '@/lib/domain';
 import { ensureSupabaseSynced, pullPlatformFromSupabase, pushAllToSupabase } from '@/lib/supabaseStore';
 
@@ -12,9 +14,10 @@ async function handlePOST(req: Request) {
     await pullPlatformFromSupabase();
     const db = databaseForRequest(req);
     await ensureSupabaseSynced(db);
+    await refreshAccessPolicy(db);
     const user = getUserFromRequest(req, db);
     if (!user) return NextResponse.json({ error: 'Não autenticado.' }, { status: 401 });
-    if (user.role !== 'ops') return NextResponse.json({ error: 'Acesso restrito ao Controle Operacional.' }, { status: 403 });
+    if (!can(user, 'warehouses')) return NextResponse.json({ error: 'Seu acesso não permite esta ação. Solicite autorização ao administrador.' }, { status: 403 });
 
     const body = await req.json();
     enforceCompanyAction(req, 'warehouses', body);
@@ -32,7 +35,7 @@ async function handlePOST(req: Request) {
       detail: `Cidade: ${warehouse.city} · Responsável: ${warehouse.responsible}`,
     });
     await pushAllToSupabase(db);
-    return NextResponse.json({ warehouse, state, audit: listCompanyAudit(db, state) });
+    return NextResponse.json({ warehouse, state: stateForUser(state, user), audit: can(user,'audit') ? listCompanyAudit(db, state) : [] });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Erro ao salvar estoque.';
     return NextResponse.json({ error: message }, { status: 400 });

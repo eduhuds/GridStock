@@ -1,7 +1,9 @@
+import { refreshAccessPolicy } from '@/lib/accessPolicySync';
+import { can } from '@/lib/permissions';
 import { secureRoute } from '@/lib/apiSecurity';
 import { databaseForRequest } from '@/lib/companies';
 import { NextResponse } from 'next/server';
-import { getUserFromRequest, loadState, saveState, recordCompanyAudit, listCompanyAudit } from '@/lib/db';
+import { stateForUser, getUserFromRequest, loadState, saveState, recordCompanyAudit, listCompanyAudit } from '@/lib/db';
 import { deleteProduct } from '@/lib/domain';
 import { ensureSupabaseSynced, pullPlatformFromSupabase, pushAllToSupabase } from '@/lib/supabaseStore';
 
@@ -12,9 +14,10 @@ async function handleDELETE(req: Request, context: { params: Promise<{ id: strin
     await pullPlatformFromSupabase();
     const db = databaseForRequest(req);
     await ensureSupabaseSynced(db);
+    await refreshAccessPolicy(db);
     const user = getUserFromRequest(req, db);
     if (!user) return NextResponse.json({ error: 'Não autenticado.' }, { status: 401 });
-    if (user.role !== 'ops') return NextResponse.json({ error: 'Acesso restrito ao Controle Operacional.' }, { status: 403 });
+    if (!can(user, 'products')) return NextResponse.json({ error: 'Seu acesso não permite esta ação. Solicite autorização ao administrador.' }, { status: 403 });
 
     const { id } = await context.params;
     const decodedId = decodeURIComponent(id);
@@ -32,7 +35,7 @@ async function handleDELETE(req: Request, context: { params: Promise<{ id: strin
       detail: 'Item removido do catálogo (saldo zerado)',
     });
     await pushAllToSupabase(db);
-    return NextResponse.json({ state, audit: listCompanyAudit(db, state) });
+    return NextResponse.json({ state: stateForUser(state, user), audit: can(user,'audit') ? listCompanyAudit(db, state) : [] });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Erro ao excluir produto.';
     return NextResponse.json({ error: message }, { status: 400 });

@@ -1,3 +1,5 @@
+import { policies, writePolicies } from './accessPolicy';
+import type { AccessPolicy } from './permissions';
 import { isValidCpf, requireCpf, normalizeCpf, maskCpf } from './cpf';
 import { defaultConfig, parseCompanyConfig, type CompanyConfig } from './companyConfig';
 import fs from 'node:fs';
@@ -271,6 +273,7 @@ export interface PlatformRegistrySnapshot {
 }
 
 export interface CompanyDbSnapshot {
+  accessPolicies?: Record<string, AccessPolicy>;
   users: Record<string, unknown>[];
   sessions: Record<string, unknown>[];
   state: GridStockState;
@@ -364,6 +367,7 @@ export function exportCompanySnapshot(companyId: string): CompanyDbSnapshot | nu
   if (!company) return null;
   const tenantDb = companyDb(company);
   return {
+    accessPolicies: policies(tenantDb),
     users: tenantDb.prepare('SELECT * FROM users').all() as Record<string, unknown>[],
     sessions: tenantDb.prepare('SELECT * FROM sessions').all() as Record<string, unknown>[],
     state: loadState(tenantDb),
@@ -394,6 +398,7 @@ export function importCompanySnapshot(companyId: string, snapshot: CompanyDbSnap
         );
       }
     }
+    if (snapshot.accessPolicies) writePolicies(tenantDb, snapshot.accessPolicies);
     if (Array.isArray(snapshot.sessions)) {
       tenantDb.exec('DELETE FROM sessions');
       const insS = tenantDb.prepare(

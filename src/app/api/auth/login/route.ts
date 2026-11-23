@@ -1,8 +1,10 @@
+import { refreshAccessPolicy } from '@/lib/accessPolicySync';
+import { can } from '@/lib/permissions';
 import { secureRoute } from '@/lib/apiSecurity';
 import { requireCpf } from '@/lib/cpf';
 import { authenticateCompanyFallback, configForRequest, databaseForRequest, enforceCompanyAction } from '@/lib/companies';
 import { NextResponse } from 'next/server';
-import { authenticate, stateForUser, listUsers, loadState, recordCompanyAudit, listCompanyAudit } from '@/lib/db';
+import { authenticate, getUserFromRequest, stateForUser, listUsers, loadState, recordCompanyAudit, listCompanyAudit } from '@/lib/db';
 import { ensureSupabaseSynced, pullPlatformFromSupabase, pushAllToSupabase } from '@/lib/supabaseStore';
 
 export const dynamic = 'force-dynamic';
@@ -10,6 +12,10 @@ export const dynamic = 'force-dynamic';
 async function respondWithCompanyMatches(matches: ReturnType<typeof authenticateCompanyFallback>) {
   if (matches.length === 1) {
     const companyMatch = matches[0];
+    await refreshAccessPolicy(companyMatch.db);
+    const refreshed = getUserFromRequest(new Request('http://local', {headers:{authorization:'Bearer '+companyMatch.token}}), companyMatch.db);
+    if (!refreshed) return NextResponse.json({error:'Acesso revogado.'},{status:401});
+    companyMatch.user = refreshed;
     recordCompanyAudit(companyMatch.db, {
       actorName: companyMatch.user.name,
       actorUsername: companyMatch.user.username,
@@ -21,8 +27,8 @@ async function respondWithCompanyMatches(matches: ReturnType<typeof authenticate
     });
     await pushAllToSupabase(companyMatch.db);
     const cState = loadState(companyMatch.db);
-    const cUsers = companyMatch.user.role === 'ops' ? listUsers(companyMatch.db) : [];
-    const cAudit = companyMatch.user.role === 'ops' ? listCompanyAudit(companyMatch.db, cState) : [];
+    const cUsers = companyMatch.user.companyAdmin ? listUsers(companyMatch.db) : [];
+    const cAudit = can(companyMatch.user, 'audit') ? listCompanyAudit(companyMatch.db, cState) : [];
     return NextResponse.json({
       token: companyMatch.token,
       user: companyMatch.user,
@@ -45,6 +51,7 @@ async function handlePOST(req: Request) {
     enforceCompanyAction(req, 'login', body);
     const db = databaseForRequest(req);
     await ensureSupabaseSynced(db);
+    await refreshAccessPolicy(db);
 
     try {
       const { token, user } = authenticate(body.username, body.password, db);
@@ -72,8 +79,8 @@ async function handlePOST(req: Request) {
       });
       await pushAllToSupabase(db);
       const state = loadState(db);
-      const users = user.role === 'ops' ? listUsers(db) : [];
-      const audit = user.role === 'ops' ? listCompanyAudit(db, state) : [];
+      const users = user.companyAdmin ? listUsers(db) : [];
+      const audit = can(user, 'audit') ? listCompanyAudit(db, state) : [];
       return NextResponse.json({ token, user, state: stateForUser(state, user), users, audit, config: configForRequest(req) });
     } catch (authErr) {
       if (!hasCompanyHeader) {

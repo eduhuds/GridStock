@@ -1,6 +1,8 @@
 'use client';
 
 import dynamic from 'next/dynamic';
+import CompanyUsersPanel from './CompanyUsersPanel';
+import { can, movementPermission, type Permission } from '@/lib/permissions';
 import { useRouter } from 'next/navigation';
 import BrandLoading from './BrandLoading';
 import { HistoryFilters, SetupChecklist, RequirementDialog, type Requirement } from './OperationalTools';
@@ -215,7 +217,17 @@ export default function GridStockApp({ entryRole: initialEntryRole = 'ops', comp
   const [filterCategory, setFilterCategory] = useState<string>('');
   const [lowOnly, setLowOnly] = useState<boolean>(false);
 
-  const [modal, setModal] = useState<ModalState>(null);
+  const [modal, setModalRaw] = useState<ModalState>(null);
+  const allowed = (permission: Permission) => can(currentUser, permission);
+  const pagePermission: Partial<Record<PageId, Permission>> = {stock:'stock',warehouses:'stock',products:'stock',movements:'history',team:'team',audit:'audit'};
+  const setModal = (next: ModalState) => {
+    if (next) {
+      const permission = next.type === 'movement' ? movementPermission(next.kind) : ({warehouse:'warehouses',product:'products',tech:'technicians',transfer:'transfer',detail:'team'} as Record<string,Permission>)[next.type];
+      if ((permission && !allowed(permission)) || (next.type === 'system' && !currentUser?.companyAdmin) || ['arrival','finish'].includes(next.type)) { showToast('Seu acesso não permite esta ação. Fale com o administrador.'); return; }
+      if (next.type === 'movement' && currentUser?.role === 'ops' && ['withdraw','return','use','count','departure'].includes(next.kind) && !allowed('team')) { showToast('Você não tem acesso aos estoques dos técnicos.'); return; }
+    }
+    setModalRaw(next);
+  };
   const [formError, setFormError] = useState<string>('');
   const [toastMsg, setToastMsg] = useState<string>('');
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -265,8 +277,6 @@ export default function GridStockApp({ entryRole: initialEntryRole = 'ops', comp
   const [trNote, setTrNote] = useState<string>('');
 
   // System user form state
-  const [sysRole, setSysRole] = useState<'ops' | 'tech'>('ops');
-  const [confirmDeleteUser, setConfirmDeleteUser] = useState<UserAccount | null>(null);
   const [confirmDeleteProduct, setConfirmDeleteProduct] = useState<boolean>(false);
   const [xlsxImporting, setXlsxImporting] = useState<boolean>(false);
   const [submitting, setSubmitting] = useState<boolean>(false);
@@ -644,6 +654,7 @@ export default function GridStockApp({ entryRole: initialEntryRole = 'ops', comp
   };
 
   const navigate = (p: PageId) => {
+    if (pagePermission[p] && !allowed(pagePermission[p]!)) { showToast('Você não tem permissão para consultar esta área.'); return; }
     setSidebarOpen(false);
     startNavigation(() => {
       setPage(p);
@@ -751,6 +762,7 @@ export default function GridStockApp({ entryRole: initialEntryRole = 'ops', comp
   }), [state.movements, historyFilter, currentTech?.id, techId, view, filterKind, filterTech, query, partById, techById, locName]);
 
   const exportCSV = () => {
+    if (!allowed('export')) { showToast('A exportação não está liberada para seu acesso.'); return; }
     const safe = (v: unknown) => {
       let s = String(v ?? '');
       if (/^[=+\-@\t\r]/.test(s)) s = "'" + s;
@@ -1029,20 +1041,9 @@ export default function GridStockApp({ entryRole: initialEntryRole = 'ops', comp
         audit: 'Minha jornada',
       }[page];
 
-  const userInitials = ops
-    ? currentUser.name
-        .split(/\s+/)
-        .map(w => w[0])
-        .slice(0, 2)
-        .join('')
-        .toUpperCase() || 'OP'
-    : currentTech?.initials || 'TC';
-  const userName = ops ? currentUser.name : currentTech?.name || currentUser.name;
-  const userRoleLabel = ops
-    ? (company ? 'Administrador da empresa' : 'Controle operacional')
-    : currentTech?.vehicle
-    ? `Técnico · ${currentTech.vehicle}`
-    : 'Técnico em campo';
+  const userInitials = currentUser.name.split(/\s+/).map(w => w[0]).slice(0,2).join('').toUpperCase();
+  const userName = currentUser.name;
+  const userRoleLabel = currentUser.companyAdmin ? 'Administrador da empresa' : isOpsUser ? 'Operacional' : 'Técnico em campo';
 
   const renderOpsStats = () => {
     const on = state.technicians.filter(t => ['route', 'working'].includes(t.status)).length;
@@ -1097,7 +1098,7 @@ export default function GridStockApp({ entryRole: initialEntryRole = 'ops', comp
     ];
     return <section className="panel restock-panel" aria-label="Reposição por localização">
       <div className="panel-head"><div><span className="page-eyebrow">ATENÇÃO AO ESTOQUE</span><h2>O que precisa de reposição</h2><p>Veja a peça, o local e quanto falta para atingir o mínimo.</p></div>
-        {warehouseLowAlerts.length > 0 && <button className="button secondary" onClick={() => setRestockModalOpen(true)}><Icon name="download" />Pedido de compra</button>}
+        {warehouseLowAlerts.length > 0 && <button className="button secondary" disabled={!allowed('export')} onClick={() => setRestockModalOpen(true)}><Icon name="download" />Pedido de compra</button>}
       </div>
       <div className="restock-groups">{groups.map(group => <div className="restock-group" key={group.title}>
         <h3><Icon name={group.icon} />{group.title}<span>{group.items.length}</span></h3>
@@ -1844,7 +1845,7 @@ export default function GridStockApp({ entryRole: initialEntryRole = 'ops', comp
                 </button>
               </>
             )}
-            <button className="button secondary" type="button" onClick={() => setRestockModalOpen(true)}>
+            <button className="button secondary" type="button" disabled={!allowed('export')} onClick={() => setRestockModalOpen(true)}>
               <Icon name="download" />Pedido de compra
             </button>
             <button className="button secondary" onClick={() => openMovementModal('entry')}>
@@ -2044,7 +2045,7 @@ export default function GridStockApp({ entryRole: initialEntryRole = 'ops', comp
             <h2>Histórico de movimentações</h2>
             <p>Entradas, retiradas, utilizações, devoluções, transferências e chegadas</p>
           </div>
-          <button className="text-link" onClick={exportCSV}>
+          <button className="text-link" disabled={!allowed('export')} onClick={exportCSV}>
             <Icon name="download" />Exportar CSV
           </button>
         </div>
@@ -2262,6 +2263,7 @@ export default function GridStockApp({ entryRole: initialEntryRole = 'ops', comp
   );
 
   const exportAuditCSV = () => {
+    if (!allowed('export')) { showToast('A exportação não está liberada para seu acesso.'); return; }
     if (!auditLogs.length) {
       showToast('Não há registros de auditoria para exportar.');
       return;
@@ -2341,7 +2343,7 @@ export default function GridStockApp({ entryRole: initialEntryRole = 'ops', comp
             </p>
           </div>
           <div className="heading-actions">
-            <button type="button" className="button secondary" onClick={exportAuditCSV}>
+            <button type="button" className="button secondary" disabled={!allowed('export')} onClick={exportAuditCSV}>
               <Icon name="download" />Exportar auditoria (.CSV)
             </button>
             <button
@@ -2349,7 +2351,7 @@ export default function GridStockApp({ entryRole: initialEntryRole = 'ops', comp
               className="button"
               onClick={() => {
                 setFormError('');
-                setConfirmDeleteUser(null);
+
                 setModal({ type: 'system' });
               }}
             >
@@ -2578,26 +2580,26 @@ export default function GridStockApp({ entryRole: initialEntryRole = 'ops', comp
     const personalTotal = calcTotal(state, currentTech.id);
     const personalParts = [...state.parts].sort((a, b) => (state.stock[currentTech.id]?.[b.id] || 0) - (state.stock[currentTech.id]?.[a.id] || 0));
     return <div className="tech-workspace">
-      <div className="page-heading"><div><span className="page-eyebrow">MEU DIA EM CAMPO</span><h1>Olá, {currentTech.name.split(' ')[0]}.</h1><p>Suas peças e cada utilização, em um só lugar.</p></div>
-        {isOpsUser && <div className="tech-preview-select"><label htmlFor="journey-tech">Visão do técnico · acesso operacional</label><select id="journey-tech" value={currentTech.id} onChange={e => {setTechId(e.target.value); clearFilters();}}>{state.technicians.map(t => <option key={t.id} value={t.id}>{t.name} · {t.vehicle}</option>)}</select></div>}
+      <div className="page-heading"><div><span className="page-eyebrow">MEU DIA EM CAMPO</span><h1>{isOpsUser ? 'Estoque de ' : 'Olá, '}{currentTech.name.split(' ')[0]}.</h1><p>Suas peças e cada utilização, em um só lugar.</p></div>
+        {isOpsUser && <div className="tech-preview-select"><label htmlFor="journey-tech">Consultar estoque de um técnico</label><select id="journey-tech" value={currentTech.id} onChange={e => {setTechId(e.target.value); clearFilters();}}>{state.technicians.map(t => <option key={t.id} value={t.id}>{t.name} · {t.vehicle}</option>)}</select></div>}
       </div>
-      <section className="tech-day-panel" aria-label="Saldo e ações do técnico">
-        <div className="tech-day-balance"><span className="tech-day-icon"><Icon name="box" /></span><div><span>Peças comigo</span><strong>{fmtNum(personalTotal)} <small>unidades</small></strong><p>{personalTotal ? 'Disponíveis no seu estoque pessoal' : 'Seu estoque está vazio. Retire peças na base para começar.'}</p></div><button className="text-link" onClick={() => navigate('stock')}>Ver meu estoque <Icon name="arrow" /></button></div>
+      <div className="access-context">{isOpsUser ? <>Você está conectado como <strong>{currentUser.name}</strong> e consultando <strong>{currentTech.name}</strong>. Qualquer alteração será registrada no seu nome.</> : <>Você acessa somente o seu estoque. As ações disponíveis são definidas pelo administrador.</>}</div><section className="tech-day-panel" aria-label="Saldo e ações do técnico">
+        <div className="tech-day-balance"><span className="tech-day-icon"><Icon name="box" /></span><div><span>{isOpsUser ? 'Peças com este técnico' : 'Peças comigo'}</span><strong>{fmtNum(personalTotal)} <small>unidades</small></strong><p>{personalTotal ? (isOpsUser ? 'Disponíveis no estoque do técnico selecionado' : 'Disponíveis no seu estoque pessoal') : 'Seu estoque está vazio. Retire peças na base para começar.'}</p></div><button className="text-link" onClick={() => navigate('stock')}>{isOpsUser ? 'Ver estoque do técnico' : 'Ver meu estoque'} <Icon name="arrow" /></button></div>
         <div className="tech-day-actions">
-          <button className="tech-use-action" disabled={!personalTotal} onClick={() => openMovementModal('use', currentTech.id)}><Icon name="pin" /><span><strong>Informar onde usei</strong><small>Registre a peça, a quantidade e o local</small></span><Icon name="arrow" /></button>
-          <button onClick={() => openMovementModal('withdraw', currentTech.id)}><Icon name="out" /><span><strong>Retirar peças</strong><small>Da base para meu estoque</small></span></button>
-          <button disabled={!personalTotal} onClick={() => openMovementModal('return', currentTech.id)}><Icon name="in" /><span><strong>Devolver peças</strong><small>Entregar de volta à base</small></span></button>
+          <button className="tech-use-action" disabled={!personalTotal || !allowed('use')} onClick={() => openMovementModal('use', currentTech.id)}><Icon name="pin" /><span><strong>{isOpsUser ? 'Registrar uso para o técnico' : 'Informar onde usei'}</strong><small>Registre a peça, a quantidade e o local</small></span><Icon name="arrow" /></button>
+          <button disabled={!allowed('withdraw')} onClick={() => openMovementModal('withdraw', currentTech.id)}><Icon name="out" /><span><strong>Retirar peças</strong><small>{isOpsUser ? 'Da base para o técnico' : 'Da base para meu estoque'}</small></span></button>
+          <button disabled={!personalTotal || !allowed('return')} onClick={() => openMovementModal('return', currentTech.id)}><Icon name="in" /><span><strong>Devolver peças</strong><small>Entregar de volta à base</small></span></button>
         </div>
         <p className="tech-day-caption"><Icon name="shield" />O local de utilização fica visível ao operacional. A localização GPS é opcional.</p>
       </section>
-      <div className="tech-secondary-actions"><button className="button secondary" onClick={() => openMovementModal('departure', currentTech.id)}><Icon name="van" />Declarar peças de saída do dia</button><button className="text-link" onClick={() => openMovementModal('count', currentTech.id)}><Icon name="edit" />Conferir estoque pessoal</button></div>
+      <div className="tech-secondary-actions"><button className="button secondary" disabled={!allowed('departure')} onClick={() => openMovementModal('departure', currentTech.id)}><Icon name="van" />Declarar peças de saída do dia</button><button className="text-link" disabled={!allowed('count')} onClick={() => openMovementModal('count', currentTech.id)}><Icon name="edit" />Conferir estoque pessoal</button></div>
       <div className="tech-summary-stats">{renderTechStats()}</div>
       {renderDailyDepartures(currentTech.id)}
       <section className="panel">
         <div className="panel-head"><div><h2>Meu estoque em campo</h2><p>Escolha uma peça para informar onde ela foi utilizada.</p></div><button className="text-link" onClick={() => navigate('stock')}>Ver todas <Icon name="arrow" /></button></div>
         {personalParts.length ? <div className="inventory-grid">{personalParts.slice(0, 6).map(p => {
           const qty = state.stock[currentTech.id]?.[p.id] ?? 0;
-          return <article key={p.id} className="inventory-card"><div className="inventory-top"><span className="item-icon"><Icon name="box" /></span><Badge label={qty === 0 ? 'Sem saldo' : qty < p.min ? 'Repor' : 'Disponível'} color={qty < p.min || !qty ? 'amber' : 'green'} /></div><h3>{p.name}</h3><span className="sku">{p.sku}</span><div className="inventory-bottom"><div><strong>{qty}</strong><small>{p.unit}</small></div><button className="button secondary" disabled={!qty} onClick={() => openMovementModal('use', currentTech.id, p.id)}><Icon name="pin" />Informar uso</button></div></article>;
+          return <article key={p.id} className="inventory-card"><div className="inventory-top"><span className="item-icon"><Icon name="box" /></span><Badge label={qty === 0 ? 'Sem saldo' : qty < p.min ? 'Repor' : 'Disponível'} color={qty < p.min || !qty ? 'amber' : 'green'} /></div><h3>{p.name}</h3><span className="sku">{p.sku}</span><div className="inventory-bottom"><div><strong>{qty}</strong><small>{p.unit}</small></div><button className="button secondary" disabled={!qty || !allowed('use')} onClick={() => openMovementModal('use', currentTech.id, p.id)}><Icon name="pin" />Informar uso</button></div></article>;
         })}</div> : <div className="empty"><Icon name="box" /><p>Solicite ao operacional o cadastro das peças para começar.</p></div>}
       </section>
       <section className="panel"><div className="panel-head"><div><h2>Minha atividade recente</h2><p>Peças, quantidades e locais registrados.</p></div><button className="text-link" onClick={() => navigate('movements')}>Ver histórico <Icon name="arrow" /></button></div>{renderMovementTable(state.movements.filter(m => m.technician === currentTech.id).slice(0, 4))}</section>
@@ -4010,180 +4012,8 @@ export default function GridStockApp({ entryRole: initialEntryRole = 'ops', comp
     }
 
     if (modal.type === 'system') {
-      return (
-        <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setModal(null)}>
-          <section className="modal wide" role="dialog" aria-modal="true">
-            <div className="modal-header">
-              <div>
-                <h2>Usuários e acessos</h2>
-                <p>Gerencie as contas e os acessos da equipe da sua empresa.</p>
-              </div>
-              <button className="modal-close" type="button" onClick={() => setModal(null)} aria-label="Fechar janela">
-                <Icon name="close" />
-              </button>
-            </div>
-            <div className="modal-body">
-              {formError && <div className="error" role="alert">{formError}</div>}
-              {confirmDeleteUser && (
-                <div
-                  role="alertdialog"
-                  aria-labelledby="confirm-del-user-title"
-                  style={{
-                    background: '#fff5f4',
-                    border: '1px solid #f2b8b5',
-                    borderRadius: 8,
-                    padding: '14px 16px',
-                    marginBottom: 16,
-                    display: 'flex',
-                    flexWrap: 'wrap',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    gap: 12,
-                  }}
-                >
-                  <div>
-                    <strong id="confirm-del-user-title" style={{ color: '#8c1d18', display: 'block', marginBottom: 2 }}>
-                      Tem certeza de que deseja remover este usuário?
-                    </strong>
-                    <span className="small" style={{ color: '#5f2120' }}>
-                      O acesso de <strong>{confirmDeleteUser.name}</strong> (<code>@{confirmDeleteUser.username}</code>) será revogado imediatamente.
-                    </span>
-                  </div>
-                  <div style={{ display: 'flex', gap: 8 }}>
-                    <button
-                      type="button"
-                      className="button secondary"
-                      onClick={() => setConfirmDeleteUser(null)}
-                    >
-                      Cancelar
-                    </button>
-                    <button
-                      type="button"
-                      className="button danger"
-                      onClick={async () => {
-                        const target = confirmDeleteUser;
-                        setConfirmDeleteUser(null);
-                        setFormError('');
-                        try {
-                          const res = await apiCall('DELETE', `/api/users/${encodeURIComponent(target.id)}`);
-                          applyServerPayload({ users: res.users });
-                          showToast('Usuário removido.');
-                        } catch (err) {
-                          setFormError(err instanceof Error ? err.message : 'Erro ao remover usuário.');
-                        }
-                      }}
-                    >
-                      <Icon name="trash" />
-                      Sim, remover
-                    </button>
-                  </div>
-                </div>
-              )}
-              <h3 style={{ marginBottom: 10 }}>Usuários com acesso ao sistema</h3>
-              <div className="table-wrap" style={{ border: '1px solid var(--line)', borderRadius: 8, marginBottom: 20 }}>
-                <table>
-                  <thead>
-                    <tr><th>Nome</th><th>Usuário</th><th>Perfil</th><th /></tr>
-                  </thead>
-                  <tbody>
-                    {users.map(u => (
-                      <tr key={u.id}>
-                        <td><strong>{u.name}</strong></td>
-                        <td className="mono">@{u.username}</td>
-                        <td>
-                          {u.role === 'ops' ? (
-                            <Badge label="Operação" color="green" />
-                          ) : (
-                            <Badge label={`Técnico · ${techById(u.technicianId || '')?.name || 'Campo'}`} color="blue" />
-                          )}
-                        </td>
-                        <td style={{ textAlign: 'right' }}>
-                          {u.id !== currentUser.id ? (
-                            <button
-                              type="button"
-                              className="text-link danger"
-                              onClick={() => {
-                                setFormError('');
-                                setConfirmDeleteUser(u);
-                              }}
-                            >
-                              Remover
-                            </button>
-                          ) : (
-                            <span className="muted small">Sessão atual</span>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              <form
-                style={{ background: 'var(--soft)', border: '1px solid var(--line)', borderRadius: 8, padding: 16, marginBottom: 22 }}
-                onSubmit={async ev => {
-                  ev.preventDefault();
-                  setFormError('');
-                  const formEl = ev.currentTarget;
-                  const fd = Object.fromEntries(new FormData(formEl));
-                  try {
-                    const res = await apiCall('POST', '/api/users', fd);
-                    applyServerPayload({ users: res.users });
-                    formEl.reset();
-                    setSysRole('ops');
-                    showToast('Usuário salvo com sucesso.');
-                  } catch (err) {
-                    setFormError(err instanceof Error ? err.message : 'Erro ao salvar usuário.');
-                  }
-                }}
-              >
-                <h3 style={{ marginBottom: 12 }}>Adicionar novo usuário</h3>
-                <div className="form-grid">
-                  <div className="field">
-                    <label htmlFor="u-name">Nome *</label>
-                    <input className="input" id="u-name" name="name" placeholder="Ex.: Carlos Souza" required />
-                  </div>
-                  <div className="field">
-                    <label htmlFor="u-login">CPF *</label>
-                    <input className="input" id="u-login" name="username" inputMode="numeric" maxLength={14} placeholder="000.000.000-00" required />
-                  </div>
-                </div>
-                <div className="form-grid">
-                  <div className="field">
-                    <label htmlFor="u-pass">Senha *</label>
-                    <input className="input" id="u-pass" name="password" type="password" placeholder="Mínimo 8 caracteres" required />
-                  </div>
-                  <div className="field">
-                    <label htmlFor="u-role">Perfil de acesso *</label>
-                    <select
-                      id="u-role"
-                      name="role"
-                      value={sysRole}
-                      onChange={e => setSysRole(e.target.value as 'ops' | 'tech')}
-                    >
-                      <option value="ops">Controle Operacional (Total)</option>
-                      <option value="tech" disabled={!state.technicians.length}>Técnico em campo</option>
-                    </select>
-                  </div>
-                </div>
-                {sysRole === 'tech' && (
-                  <div className="field">
-                    <label htmlFor="u-tech">Técnico vinculado *</label>
-                    <select id="u-tech" name="technicianId">
-                      {state.technicians.map(t => (
-                        <option key={t.id} value={t.id}>{t.name} ({t.vehicle})</option>
-                      ))}
-                    </select>
-                  </div>
-                )}
-                <button type="submit" className="button"><Icon name="plus" />Salvar usuário</button>
-              </form>
-            </div>
-            <div className="modal-footer">
-              <button className="button secondary" onClick={() => setModal(null)}>Fechar</button>
-            </div>
-          </section>
-        </div>
-      );
+      if (!currentUser.companyAdmin) return null;
+      return <div className="modal-overlay" onClick={e=>e.target===e.currentTarget&&setModal(null)}><section className="modal wide" role="dialog" aria-modal="true"><div className="modal-header"><h2>Usuários e acessos</h2><button className="modal-close" aria-label="Fechar janela" onClick={()=>setModal(null)}><Icon name="close" /></button></div><div className="modal-body"><CompanyUsersPanel users={users} currentUser={currentUser} technicians={state.technicians} fieldService={companyConfig.fieldService} api={apiCall} onSaved={applyServerPayload}/></div></section></div>;
     }
 
     if (modal.type === 'profile') {
@@ -4298,7 +4128,7 @@ export default function GridStockApp({ entryRole: initialEntryRole = 'ops', comp
                   <small>Ao alterar sua senha, outras sessões abertas em outros dispositivos serão encerradas por segurança.</small>
                 </div>
 
-                {isOpsUser && (
+                {currentUser.companyAdmin && (
                   <div
                     style={{
                       display: 'flex',
@@ -4321,7 +4151,7 @@ export default function GridStockApp({ entryRole: initialEntryRole = 'ops', comp
                       className="button secondary"
                       onClick={() => {
                         setFormError('');
-                        setConfirmDeleteUser(null);
+
                         setModal({ type: 'system' });
                       }}
                     >
@@ -4406,7 +4236,8 @@ export default function GridStockApp({ entryRole: initialEntryRole = 'ops', comp
             </button>
             {ops && (
               <button
-                className={`nav-button ${page === 'warehouses' ? 'active' : ''}`}
+                disabled={!allowed('stock')}
+              className={`nav-button ${page === 'warehouses' ? 'active' : ''}`}
               aria-label={'Estoques'}
               aria-current={page === 'warehouses' ? 'page' : undefined}
               title={'Estoques'}
@@ -4418,6 +4249,7 @@ export default function GridStockApp({ entryRole: initialEntryRole = 'ops', comp
               </button>
             )}
             <button
+              disabled={!allowed('stock')}
               className={`nav-button ${page === 'stock' ? 'active' : ''}`}
               aria-label={ops ? 'Inventário' : 'Meu estoque'}
               aria-current={page === 'stock' ? 'page' : undefined}
@@ -4429,7 +4261,8 @@ export default function GridStockApp({ entryRole: initialEntryRole = 'ops', comp
             </button>
             {ops && (
               <button
-                className={`nav-button ${page === 'products' ? 'active' : ''}`}
+                disabled={!allowed('stock')}
+              className={`nav-button ${page === 'products' ? 'active' : ''}`}
               aria-label={'Produtos'}
               aria-current={page === 'products' ? 'page' : undefined}
               title={'Produtos'}
@@ -4441,6 +4274,7 @@ export default function GridStockApp({ entryRole: initialEntryRole = 'ops', comp
               </button>
             )}
             <button
+              disabled={!allowed('history')}
               className={`nav-button ${page === 'movements' ? 'active' : ''}`}
               aria-label={ops ? 'Movimentações' : 'Minhas movimentações'}
               aria-current={page === 'movements' ? 'page' : undefined}
@@ -4450,7 +4284,7 @@ export default function GridStockApp({ entryRole: initialEntryRole = 'ops', comp
               <Icon name="arrows" />
               <span>{ops ? 'Movimentações' : 'Minhas movimentações'}</span>
             </button>
-            {ops && (
+            {ops && allowed('team') && (
               <button
                 className={`nav-button ${page === 'team' ? 'active' : ''}`}
               aria-label={'Equipe em campo'}
@@ -4463,7 +4297,7 @@ export default function GridStockApp({ entryRole: initialEntryRole = 'ops', comp
                 <span className="nav-count">{state.technicians.length}</span>
               </button>
             )}
-            {ops && (
+            {ops && allowed('audit') && (
               <button
                 className={`nav-button ${page === 'audit' ? 'active' : ''}`}
                 aria-label="Auditoria"
@@ -4479,18 +4313,18 @@ export default function GridStockApp({ entryRole: initialEntryRole = 'ops', comp
           </nav>
           <div className="sidebar-help">
             <Icon name="shield" />
-            <strong>{isOpsUser ? (company ? 'Administração da empresa' : 'Administração e acessos') : 'Operação rastreada'}</strong>
+            <strong>{currentUser.companyAdmin ? 'Administração da empresa' : 'Operação rastreada'}</strong>
             <p>
-              {isOpsUser
+              {currentUser.companyAdmin
                 ? 'Gerencie usuários, acessos e a trilha de auditoria da sua empresa.'
                 : 'Registre retiradas, locais de uso e devoluções em tempo real.'}
             </p>
-            {isOpsUser ? (
+            {currentUser.companyAdmin ? (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                 <button onClick={() => navigate('audit')}>
                   Trilha de auditoria <Icon name="arrow" />
                 </button>
-                <button onClick={() => { setFormError(''); setConfirmDeleteUser(null); setModal({ type: 'system' }); }}>
+                <button onClick={() => { setFormError('');  setModal({ type: 'system' }); }}>
                   Usuários e acessos <Icon name="arrow" />
                 </button>
 
@@ -4547,7 +4381,7 @@ export default function GridStockApp({ entryRole: initialEntryRole = 'ops', comp
               <strong>{pageTitle}</strong>
             </div>
             <div className="top-actions">
-              {isOpsUser ? (
+              {isOpsUser && allowed('team') ? (
                 <div className="view-switch" aria-label="Escolher visão">
                   <button
                     className={ops ? 'active' : ''}
@@ -4589,10 +4423,10 @@ export default function GridStockApp({ entryRole: initialEntryRole = 'ops', comp
               >
                 <Icon name="bell" />
               </button>
-              {isOpsUser && (
+              {currentUser.companyAdmin && (
                 <button
                   className="icon-button"
-                  onClick={() => { setFormError(''); setConfirmDeleteUser(null); setModal({ type: 'system' }); }}
+                  onClick={() => { setFormError('');  setModal({ type: 'system' }); }}
                   title="Usuários e acessos"
                   aria-label="Configurações do sistema"
                 >
@@ -4690,6 +4524,7 @@ export default function GridStockApp({ entryRole: initialEntryRole = 'ops', comp
                               role="menuitem"
                               onClick={() => {
                                 setQuickMenuOpen(false);
+                                if (!allowed('export')) { showToast('A exportação não está liberada para seu acesso.'); return; }
                                 setRestockModalOpen(true);
                               }}
                             >
@@ -4796,7 +4631,7 @@ export default function GridStockApp({ entryRole: initialEntryRole = 'ops', comp
           <div className="content" id="main-content" tabIndex={-1} aria-busy={navigating}>
             {navigating && <div className="navigation-progress" role="status">Abrindo sua próxima tela…</div>}
             <div key={`${view}-${page}`} className="page-transition">
-              {ops ? (
+              {(pagePermission[page] && !allowed(pagePermission[page]!)) || (view==='tech' && isOpsUser && !allowed('team')) ? <p className="access-context" role="status">Esta área não está liberada para seu acesso. Consulte o administrador da empresa.</p> : ops ? (
                 page === 'overview' ? (
                   renderOverview()
                 ) : page === 'stock' ? (

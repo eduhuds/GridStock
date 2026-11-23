@@ -1,3 +1,4 @@
+import { refreshAccessPolicy, persistAccessPolicy } from '@/lib/accessPolicySync';
 import { secureRoute } from '@/lib/apiSecurity';
 import { authenticate, saveUser } from '@/lib/db';
 import { databaseForRequest, enforceCompanyAction } from '@/lib/companies';
@@ -10,11 +11,13 @@ async function handlePOST(req: Request) {
     await pullPlatformFromSupabase();
     const db = databaseForRequest(req);
     await ensureSupabaseSynced(db);
+    await refreshAccessPolicy(db);
     const { token, user } = authenticate(body.legacyUsername, body.password, db, true);
     // Legacy credentials authorize this conversion only; they never leave a session behind.
     db.prepare('DELETE FROM sessions WHERE token = ?').run(token);
     enforceCompanyAction(req, 'login', { role: user.role });
     saveUser({ ...user, cpf }, db);
+    await persistAccessPolicy(db);
     await pushAllToSupabase(db);
     return Response.json({ ok: true });
   } catch {

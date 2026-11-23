@@ -1,3 +1,5 @@
+import { refreshAccessPolicy } from '@/lib/accessPolicySync';
+import { can } from '@/lib/permissions';
 import { secureRoute } from '@/lib/apiSecurity';
 import { databaseForRequest, configForRequest } from '@/lib/companies';
 import { NextResponse } from 'next/server';
@@ -16,13 +18,14 @@ async function handleGET(req: Request) {
     await pullPlatformFromSupabase();
     const db = databaseForRequest(req);
     await ensureSupabaseSynced(db);
+    await refreshAccessPolicy(db);
     const user = getUserFromRequest(req, db);
     if (!user) {
       return NextResponse.json({ error: 'Sessão expirada ou não autenticada.' }, { status: 401 });
     }
     const state = loadState(db);
-    const users = user.role === 'ops' ? listUsers(db) : [];
-    const audit = user.role === 'ops' ? listCompanyAudit(db, state) : [];
+    const users = user.companyAdmin ? listUsers(db) : [];
+    const audit = can(user, 'audit') ? listCompanyAudit(db, state) : [];
     return NextResponse.json({ user, state: stateForUser(state, user), users, audit, config: configForRequest(req) });
   } catch { return NextResponse.json({ error: 'Empresa indisponível ou sessão inválida.' }, { status: 401 }); }
 }

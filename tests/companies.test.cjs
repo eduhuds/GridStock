@@ -66,6 +66,7 @@ test('alteração de CPF exige senha atual e não modifica usuários de empresas
 test('conta operacional antiga pode ser convertida sem perder vínculos ou senha',()=>{
  const aDb=c.databaseForRequest(req('alpha'));const userCpf=fakeCpf(567891234);
  aDb.prepare('INSERT INTO users VALUES (?, ?, ?, ?, ?, ?, ?)').run('legacy-tech','antigo','Técnico',db.hashPassword('old-password'),'tech','t1',Date.now());
+ const access=require(path.join(temp,'accessPolicy.js')); const grants=access.policies(aDb); grants['legacy-tech']={companyAdmin:false,permissions:['stock','history']}; access.writePolicies(aDb,grants);
  const legacy=db.authenticate('antigo','old-password',aDb,true);aDb.prepare('DELETE FROM sessions WHERE token=?').run(legacy.token);
  db.saveUser({...legacy.user,cpf:userCpf},aDb);
  assert.equal(db.authenticate(userCpf,'old-password',aDb).user.technicianId,'t1');

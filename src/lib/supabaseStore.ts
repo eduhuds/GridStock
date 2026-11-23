@@ -221,7 +221,7 @@ export async function pushAllToSupabase(db: DatabaseSync): Promise<boolean> {
 
     const registryPayload = exportPlatformRegistry();
     const metaRows: Record<string, unknown>[] = [
-      ...meta,
+      ...meta.filter(row => !String(row.key).startsWith('__access_policy__:')),
       { key: PLATFORM_REGISTRY_KEY, value: JSON.stringify(registryPayload) },
     ];
 
@@ -366,7 +366,7 @@ export async function ensureSupabaseSynced(db: DatabaseSync, forcePull = false):
 
 
     const coreMetaRows = metaRows.filter(
-      m => m.key !== PLATFORM_REGISTRY_KEY && !String(m.key).startsWith(COMPANY_DB_PREFIX)
+      m => m.key !== PLATFORM_REGISTRY_KEY && !String(m.key).startsWith(COMPANY_DB_PREFIX) && !String(m.key).startsWith('__access_policy__:')
     );
 
     // If Supabase tables exist but are empty, push our local SQLite data up to Supabase!

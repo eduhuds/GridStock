@@ -8,7 +8,8 @@
     "build": "next build",
     "start": "next start -p 8080",
     "admin:create": "node scripts/create-platform-admin.cjs",
-    "test": "node --test tests/domain.test.cjs tests/server.test.cjs tests/dashboard.test.cjs tests/companies.test.cjs tests/security.test.cjs tests/platform-admin.test.cjs tests/movementFilters.test.cjs tests/movementPreview.test.cjs"
+    "test": "node --test tests/domain.test.cjs tests/server.test.cjs tests/dashboard.test.cjs tests/companies.test.cjs tests/security.test.cjs tests/platform-admin.test.cjs tests/movementFilters.test.cjs tests/movementPreview.test.cjs tests/access-control.test.cjs tests/access-policy-sync.test.cjs",
+    "test:access-api": "node --test tests/access-api.test.cjs"
   },
   "keywords": [
     "nextjs",

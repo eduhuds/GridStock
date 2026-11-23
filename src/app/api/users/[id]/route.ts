@@ -1,3 +1,4 @@
+import { refreshAccessPolicy, persistAccessPolicy } from '@/lib/accessPolicySync';
 import { secureRoute } from '@/lib/apiSecurity';
 import { databaseForRequest } from '@/lib/companies';
 import { NextResponse } from 'next/server';
@@ -11,9 +12,10 @@ async function handleDELETE(req: Request, context: { params: Promise<{ id: strin
     await pullPlatformFromSupabase();
     const db = databaseForRequest(req);
     await ensureSupabaseSynced(db);
+    await refreshAccessPolicy(db);
     const user = getUserFromRequest(req, db);
     if (!user) return NextResponse.json({ error: 'Não autenticado.' }, { status: 401 });
-    if (user.role !== 'ops') return NextResponse.json({ error: 'Acesso restrito ao Controle Operacional.' }, { status: 403 });
+    if (!user.companyAdmin) return NextResponse.json({ error: 'Seu acesso não permite esta ação. Solicite autorização ao administrador.' }, { status: 403 });
 
     const { id } = await context.params;
     const decodedId = decodeURIComponent(id);
@@ -28,8 +30,9 @@ async function handleDELETE(req: Request, context: { params: Promise<{ id: strin
       target: targetUser ? `${targetUser.name} (@${targetUser.username})` : decodedId,
       detail: 'Acesso e sessões revogados',
     });
+    await persistAccessPolicy(db);
     await pushAllToSupabase(db);
-    return NextResponse.json({ users: listUsers(db), audit: listCompanyAudit(db) });
+    return NextResponse.json({ users: user.companyAdmin ? listUsers(db) : [], audit: listCompanyAudit(db) });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Erro ao remover usuário.';
     return NextResponse.json({ error: message }, { status: 400 });
